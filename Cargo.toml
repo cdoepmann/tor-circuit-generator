@@ -14,3 +14,4 @@ strum = "0.23"
 strum_macros = "0.23"
 torscaler = {path = "../torscaler"}
 ipnet = "2.5.0"
+derive_builder = "0.10.2"
