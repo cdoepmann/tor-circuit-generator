@@ -563,25 +563,12 @@ fn compute_tor_positional_distributions<'a>(
     for relay in relays.iter() {
         let position_idx = determineFlag(&relay) as usize;
 
-        let relay_fingerprint_str = match String::from_utf8(relay.fingerprint.blob.clone()) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("Error: {} parsing fingerprint of relay: {}",e, relay.nickname);
-                continue;
-            }
-        };
+        let relay_fingerprint_str = format!("{}", relay.fingerprint);
         for family_fingerprint in &relay.family {
-            let family_fingerprint_str = match String::from_utf8(family_fingerprint.blob.clone()) {
-                Ok(v) => v,
-                Err(e) => {
-                    println!("Error parsing fingerprint of relay: {}", relay.nickname);
-                    continue;
-                }
-            };
+            let family_fingerprint_str =format!("{}", family_fingerprint);
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
         positional_distributions[position_idx].relays.push(Rc::clone(relay));
-        println!("Relay Bandwidth: {}", relay.bandwidth);
         positional_distributions[position_idx]
             .weights
             .push(relay.bandwidth);
