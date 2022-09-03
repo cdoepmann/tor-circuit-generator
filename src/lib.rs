@@ -91,16 +91,16 @@ pub enum Position {
 /* We have one of those for each possible Flag combination:
  * Exit, Guard, Exit+Guard and NotFlagged
  */
-pub struct PositionalDistribution<'a> {
+pub struct PositionalDistribution {
     pub bandwidth_sum: u64,
     pub weights: Vec<u64>,
     pub distr: WeightedAliasIndex<u64>,
-    pub relays: Vec<&'a TorCircuitRelay>,
+    pub relays: Vec<Rc<TorCircuitRelay>>,
     pub exit_policy_distr: Vec<Option<WeightedAliasIndex<u64>>>,
-    pub exit_policy_nodes: Vec<Vec<&'a TorCircuitRelay>>,
+    pub exit_policy_nodes: Vec<Vec<Rc<TorCircuitRelay>>>,
 }
-impl<'a> Default for PositionalDistribution<'a> {
-    fn default() -> PositionalDistribution<'a> {
+impl<'a> Default for PositionalDistribution {
+    fn default() -> PositionalDistribution {
         PositionalDistribution {
             bandwidth_sum: 0,
             weights: vec![],
@@ -112,9 +112,9 @@ impl<'a> Default for PositionalDistribution<'a> {
     }
 }
 
-pub struct CircuitGenerator<'a> {
-    pub relays: Rc<Vec<TorCircuitRelay>>,
-    pub positional_distributions: [PositionalDistribution<'a>; PossiblePosition::COUNT],
+pub struct CircuitGenerator {
+    pub relays: Vec<Rc<TorCircuitRelay>>,
+    pub positional_distributions: [PositionalDistribution; PossiblePosition::COUNT],
     pub exit_weights: [u64; PossiblePosition::COUNT],
     pub exit_distr: WeightedAliasIndex<u64>,
     pub guard_weights: [u64; PossiblePosition::COUNT],
@@ -147,8 +147,10 @@ fn compute_weights<'a>(
     positional_distributions: &[PositionalDistribution; PossiblePosition::COUNT],
 ) -> [u64; PossiblePosition::COUNT] {
     let mut weights = [0; PossiblePosition::COUNT];
+    println!("Compute weights!");
     for possible_position in PossiblePosition::iter() {
         let position_idx = possible_position as usize;
+        println!("Idx: {} input weight: {} bandwidth_sum: {}", position_idx, input_weights[position_idx], positional_distributions[position_idx].bandwidth_sum );
         weights[position_idx] =
             input_weights[position_idx] * positional_distributions[position_idx].bandwidth_sum;
     }
@@ -421,10 +423,10 @@ fn compute_bandwidth_distribution(
 fn compute_tor_circuit_relays<'a>(
     consensus: &'a consensus::ConsensusDocument,
     descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
-) -> Vec<TorCircuitRelay> {
+) -> Vec<Rc<TorCircuitRelay>> {
     let mut missingDescriptors = 0;
     let mut buildFailed = 0;
-    let mut relays: Vec<TorCircuitRelay> = vec![];
+    let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
     let c_bw = &consensus.weights;
@@ -526,7 +528,11 @@ fn compute_tor_circuit_relays<'a>(
             }
         };
         circuit_relay.nickname = descriptor.nickname;
-        circuit_relay.flags = circuit_relay.flags.clone();
+        let mut flags = vec![];
+        for flag in consensus_relay.flags.iter() {
+            flags.push(flag.clone());
+        }
+        circuit_relay.flags(flags);
         /* TODO!!! */
         circuit_relay.or_addresses(vec![]);
         circuit_relay.exit_policies = descriptor.exit_policy;
@@ -534,18 +540,20 @@ fn compute_tor_circuit_relays<'a>(
         let relay = match circuit_relay.build() {
             Ok(circ_relay) => circ_relay,
             Err(err) => {
+                println!("Error: {}", err.to_string());
                 buildFailed += 1;
                 continue;
             }
         };
 
-        relays.push(relay);
+        relays.push(Rc::new(relay));
     }
+    println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
     relays
 }
 fn compute_tor_positional_distributions<'a>(
-    relays: & Vec<TorCircuitRelay>, 
-    positional_distributions: &mut [PositionalDistribution<'a>; 4],
+    relays: & Vec<Rc<TorCircuitRelay>>, 
+    positional_distributions: &mut [PositionalDistribution; 4],
     family_agreement: &mut MutalAgreement,
 ) {
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
@@ -558,7 +566,7 @@ fn compute_tor_positional_distributions<'a>(
         let relay_fingerprint_str = match String::from_utf8(relay.fingerprint.blob.clone()) {
             Ok(v) => v,
             Err(e) => {
-                println!("Error parsing fingerprint of relay: {}", relay.nickname);
+                println!("Error: {} parsing fingerprint of relay: {}",e, relay.nickname);
                 continue;
             }
         };
@@ -572,7 +580,8 @@ fn compute_tor_positional_distributions<'a>(
             };
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
-        positional_distributions[position_idx].relays.push(relay);
+        positional_distributions[position_idx].relays.push(Rc::clone(relay));
+        println!("Relay Bandwidth: {}", relay.bandwidth);
         positional_distributions[position_idx]
             .weights
             .push(relay.bandwidth);
@@ -598,7 +607,7 @@ fn compute_tor_positional_distributions<'a>(
         }
         for index in 0..port_array.len() {
             if port_array[index] == Some(descriptor::ExitPolicyType::Accept) {
-                positional_distributions[position_idx].exit_policy_nodes[index].push(&relay);
+                positional_distributions[position_idx].exit_policy_nodes[index].push(Rc::clone(relay));
             }
         }
     }
@@ -609,20 +618,24 @@ fn init_consenus_weights(
     exit: &mut [u64; PossiblePosition::COUNT],
     c_bw: &BTreeMap<String, u64>,
 ) {
-    guard[PossiblePosition::GuardAndExit as usize] = *c_bw.get("wgd").unwrap();
-    guard[PossiblePosition::Guard as usize] = *c_bw.get("wgg").unwrap();
+    println!("Map contains:");
+    for key in c_bw.keys() {
+        println!("Key: {} value: {}", key, c_bw.get(key).unwrap().to_string());
+    }
+    guard[PossiblePosition::GuardAndExit as usize] = *c_bw.get("Wgd").unwrap();
+    guard[PossiblePosition::Guard as usize] = *c_bw.get("Wgg").unwrap();
     guard[PossiblePosition::Exit as usize] = 0;
-    guard[PossiblePosition::NotFlagged as usize] = *c_bw.get("wgm").unwrap();
-    middle[PossiblePosition::GuardAndExit as usize] = *c_bw.get("wmd").unwrap();
-    middle[PossiblePosition::Guard as usize] = *c_bw.get("wmg").unwrap();
-    middle[PossiblePosition::Exit as usize] = *c_bw.get("wme").unwrap();
-    middle[PossiblePosition::NotFlagged as usize] = *c_bw.get("wmm").unwrap();
-    exit[PossiblePosition::GuardAndExit as usize] = *c_bw.get("wed").unwrap();
-    exit[PossiblePosition::Guard as usize] = *c_bw.get("weg").unwrap();
-    exit[PossiblePosition::Exit as usize] = *c_bw.get("wee").unwrap();
-    exit[PossiblePosition::NotFlagged as usize] = *c_bw.get("wem").unwrap();
+    guard[PossiblePosition::NotFlagged as usize] = *c_bw.get("Wgm").unwrap();
+    middle[PossiblePosition::GuardAndExit as usize] = *c_bw.get("Wmd").unwrap();
+    middle[PossiblePosition::Guard as usize] = *c_bw.get("Wmg").unwrap();
+    middle[PossiblePosition::Exit as usize] = *c_bw.get("Wme").unwrap();
+    middle[PossiblePosition::NotFlagged as usize] = *c_bw.get("Wmm").unwrap();
+    exit[PossiblePosition::GuardAndExit as usize] = *c_bw.get("Wed").unwrap();
+    exit[PossiblePosition::Guard as usize] = *c_bw.get("Weg").unwrap();
+    exit[PossiblePosition::Exit as usize] = *c_bw.get("Wee").unwrap();
+    exit[PossiblePosition::NotFlagged as usize] = *c_bw.get("Wem").unwrap();
 }
-impl<'a> CircuitGenerator<'a> {
+impl<'a> CircuitGenerator {
     pub fn new(
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
@@ -635,7 +648,7 @@ impl<'a> CircuitGenerator<'a> {
             descriptors,
         );
         compute_tor_positional_distributions(
-            &relays
+            &relays,
             &mut positional_distributions,
             &mut family_agreement,
         );
