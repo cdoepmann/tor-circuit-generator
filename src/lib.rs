@@ -91,36 +91,28 @@ pub enum Position {
 /* We have one of those for each possible Flag combination:
  * Exit, Guard, Exit+Guard and NotFlagged
  */
-pub struct RelayTypeDistribution {
+pub struct RelayDistribution {
     pub bandwidth_sum: u64,
     pub weights: Vec<u64>,
     pub distr: WeightedAliasIndex<u64>,
     pub relays: Vec<Rc<TorCircuitRelay>>,
-    pub exit_policy_distr: Vec<Option<WeightedAliasIndex<u64>>>,
-    pub exit_policy_nodes: Vec<Vec<Rc<TorCircuitRelay>>>,
 }
-impl<'a> Default for RelayTypeDistribution {
-    fn default() -> RelayTypeDistribution {
-        RelayTypeDistribution {
+impl<'a> Default for RelayDistribution {
+    fn default() -> RelayDistribution {
+        RelayDistribution {
             bandwidth_sum: 0,
             weights: vec![],
             distr: WeightedAliasIndex::new(vec![1]).unwrap(),
             relays: vec![],
-            exit_policy_distr: vec![],
-            exit_policy_nodes: vec![vec![]; u16::MAX.into()],
         }
     }
 }
 
 pub struct CircuitGenerator {
     pub relays: Vec<Rc<TorCircuitRelay>>,
-    pub relay_type_distirbution: [RelayTypeDistribution; RelayType::COUNT],
-    pub exit_weights: [u64; RelayType::COUNT],
-    pub exit_distr: WeightedAliasIndex<u64>,
-    pub guard_weights: [u64; RelayType::COUNT],
-    pub guard_distr: WeightedAliasIndex<u64>,
-    pub middle_weights: [u64; RelayType::COUNT],
-    pub middle_distr: WeightedAliasIndex<u64>,
+    pub guard_distr: RelayDistribution,
+    pub middle_distr: RelayDistribution,
+    pub exit_distr: Vec<Option<RelayDistribution>>,
     pub family_agreement: MutalAgreement,
 }
 
@@ -140,24 +132,6 @@ impl<'a> fmt::Display for TorCircuit {
         line += format!("{}", self.guard.fingerprint).as_str();
         write!(f, "{}", line)
     }
-}
-
-fn compute_weights<'a>(
-    input_weights: Vec<u64>,
-    relay_type_distirbution: &[RelayTypeDistribution; RelayType::COUNT],
-) -> [u64; RelayType::COUNT] {
-    let mut weights = [0; RelayType::COUNT];
-    println!("Compute weights!");
-    for relay_type in RelayType::iter() {
-        let type_idx = relay_type as usize;
-        println!(
-            "Idx: {} input weight: {} bandwidth_sum: {}",
-            type_idx, input_weights[type_idx], relay_type_distirbution[type_idx].bandwidth_sum
-        );
-        weights[type_idx] =
-            input_weights[type_idx] * relay_type_distirbution[type_idx].bandwidth_sum;
-    }
-    weights
 }
 
 /* There is no real reason for u8 here, asides that I think larger circuits are ridiculus
@@ -208,11 +182,10 @@ struct TorCircuitConstruction<'a> {
     middle: Vec<Rc<TorCircuitRelay>>,
     exit: Option<Rc<TorCircuitRelay>>,
     relays: Vec<Rc<TorCircuitRelay>>,
-    hs_subnets: HashSet<IpNet>,
+    hs_subnets: HashSet<String>,
     cg: &'a CircuitGenerator,
 }
 impl<'a> TorCircuitConstruction<'a> {
-
     pub fn new(cg: &'a CircuitGenerator) -> Self {
         TorCircuitConstruction {
             guard: None,
@@ -238,7 +211,7 @@ impl<'a> TorCircuitConstruction<'a> {
                 self.update_requirements(&guard_relay);
                 self.relays.push(Rc::clone(&guard_relay));
                 self.guard = Some(Rc::clone(&guard_relay));
-                ()
+                return Ok(())
             }
             guard_relay = self.sample_guard_relay();
         }
@@ -252,7 +225,7 @@ impl<'a> TorCircuitConstruction<'a> {
                 self.update_requirements(&middle_relay);
                 self.relays.push(Rc::clone(&middle_relay));
                 self.middle.push(Rc::clone(&middle_relay));
-                ()
+                return Ok(());
             }
             middle_relay = self.sample_middle_relay();
         }
@@ -285,34 +258,32 @@ impl<'a> TorCircuitConstruction<'a> {
             guess if have to ensure this by checking and resampling if necessary,
             due to the two layered sample approach, adjusting the distributions is not possible
         */
-        let mut rng = thread_rng();
-        let type_idx = self.cg.exit_distr.sample(&mut rng);
-        let relay_type_distirbution = &self.cg.relay_type_distirbution[type_idx];
-        match &relay_type_distirbution.exit_policy_distr[target_port as usize] {
-            Some(distr) => Ok(
-                Rc::clone(&relay_type_distirbution.exit_policy_nodes[target_port as usize]
-                    [distr.sample(&mut rng)]),
-            ),
-            None => Err(Box::new(TorGeneratorError::NoRelayFoundForThisPort(
-                target_port,
-            ))),
+        match &self.cg.exit_distr[target_port as usize] {
+            Some(distr) => {
+                let mut rng = thread_rng();
+                let relay_idx = 
+                    distr.distr
+                    .sample(&mut rng);
+                Ok(Rc::clone(
+                    &distr.relays[relay_idx],
+                ))
+            }
+            None => Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port)))
         }
-    }
-
-    pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay>{
-        let mut rng = thread_rng();
-        let type_idx = self.cg.guard_distr.sample(&mut rng);
-        let relay_idx = self.cg.relay_type_distirbution[type_idx].distr.sample(&mut rng);
-        Rc::clone(&self.cg.relay_type_distirbution[type_idx].relays[relay_idx])
-    }
-
-    pub fn sample_middle_relay(&self) -> Rc<TorCircuitRelay>{
-        let mut rng = thread_rng();
-        let type_idx = self.cg.middle_distr.sample(&mut rng);
-        let relay_idx = self.cg.relay_type_distirbution[type_idx].distr.sample(&mut rng);
-        Rc::clone(&self.cg.relay_type_distirbution[type_idx].relays[relay_idx])
-    }
         
+    }
+
+    pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay> {
+        let mut rng = thread_rng();
+        let relay_idx = self.cg.guard_distr.distr.sample(&mut rng);
+        Rc::clone(&self.cg.guard_distr.relays[relay_idx])
+    }
+
+    pub fn sample_middle_relay(&self) -> Rc<TorCircuitRelay> {
+        let mut rng = thread_rng();
+        let relay_idx = self.cg.middle_distr.distr.sample(&mut rng);
+        Rc::clone(&self.cg.middle_distr.relays[relay_idx])
+    }
     pub fn update_requirements(&mut self, relay: &Rc<TorCircuitRelay>) {
         for address in &relay.or_addresses {
             let netAddr = match IpNet::new(address.ip, 16) {
@@ -322,10 +293,10 @@ impl<'a> TorCircuitConstruction<'a> {
                     continue;
                 }
             };
-            self.hs_subnets.insert(netAddr);
+            self.hs_subnets.insert(netAddr.to_string());
         }
     }
-    pub fn check_requirements(&self, relay: & Rc<TorCircuitRelay>) -> bool {
+    pub fn check_requirements(&self, relay: &Rc<TorCircuitRelay>) -> bool {
         for circ_relay in self.relays.iter() {
             let circ_relay_fingerprint_str = format!("{}", circ_relay.fingerprint);
             let relay_fingerprint_str = format!("{}", relay.fingerprint);
@@ -349,10 +320,12 @@ impl<'a> TorCircuitConstruction<'a> {
                     continue;
                 }
             };
-            if self.hs_subnets.contains(&netAddr) {
+            if self.hs_subnets.contains(&netAddr.to_string()) {
+                //println!("Subnet error: {}", netAddr.to_string());
                 return false;
             }
         }
+        //println!("success!!!!");
         return true;
     }
 }
@@ -364,47 +337,19 @@ pub fn build_circuit(
 ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
     let mut circ = TorCircuitConstruction::new(cg);
     circ.add_exit_relay(target_port)?;
-    /* TODO rewrite this!!! We want to check requirements after each sample
-     * even after exit (so family and subnets are added)
-     */
-
     circ.add_guard_relay()?;
-    
-    for i in 0..length - 2 {
-       circ.add_middle_relay()?;
+    for i in 0..(length - 2) {
+        circ.add_middle_relay()?;
     }
 
     // Move into circ.build_circuit() -> TorCircuit
     Ok(TorCircuit {
-        guard: circ
-            .guard
-            .ok_or(TorGeneratorError::UnableToSelectGuard)?,
+        guard: circ.guard.ok_or(TorGeneratorError::UnableToSelectGuard)?,
         middle: circ.middle,
         exit: circ
             .exit
             .ok_or(TorGeneratorError::UnableToSelectExit(target_port))?,
     })
-}
-
-fn sample_middle_relay(ps: &CircuitGenerator) -> Rc<TorCircuitRelay> {
-    return sample_relay(ps, &ps.middle_distr);
-}
-
-fn sample_guard_relay<'a>(ps: &CircuitGenerator) -> Rc<TorCircuitRelay> {
-    /*TODO check if relay is valid -> , we are configured to allow
-    non-valid routers in "middle" and "rendezvous" positions.
-
-    guess if have to ensure this by checking and resampling if necessary,
-    due to the two layered sample approach, adjusting the distributions is not possible
-    */
-    return sample_relay(ps, &ps.guard_distr);
-}
-
-fn sample_relay(cg: &CircuitGenerator, distr: &WeightedAliasIndex<u64>) -> Rc<TorCircuitRelay> {
-    let mut rng = thread_rng();
-    let type_idx = distr.sample(&mut rng);
-    let relay_idx = cg.relay_type_distirbution[type_idx].distr.sample(&mut rng);
-    Rc::clone(&cg.relay_type_distirbution[type_idx].relays[relay_idx])
 }
 
 fn determine_relay_type(relay: &TorCircuitRelay) -> RelayType {
@@ -564,32 +509,26 @@ fn compute_tor_circuit_relays<'a>(
     println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
     relays
 }
-fn compute_tor_relay_type_distributions<'a>(
+
+pub fn prepare_distributions(
     relays: &Vec<Rc<TorCircuitRelay>>,
-    relay_type_distirbution: &mut [RelayTypeDistribution; RelayType::COUNT],
-    family_agreement: &mut MutalAgreement,
+    guard_distr: &mut RelayDistribution,
+    middle_distr: &mut RelayDistribution,
+    exit_distr: &mut Vec<Option<RelayDistribution>>,
+    family_agreement: &mut mutal_agreement::MutalAgreement,
+    consensus_weights: &BTreeMap<String, u64>,
 ) {
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
-    for possible_position in RelayType::iter() {
-        relay_type_distirbution[possible_position as usize] = RelayTypeDistribution::default();
-    }
     for relay in relays.iter() {
-        let type_idx = determine_relay_type(&relay) as usize;
+        let relay_type = determine_relay_type(&relay);
 
         let relay_fingerprint_str = format!("{}", relay.fingerprint);
         for family_fingerprint in &relay.family {
             let family_fingerprint_str = format!("{}", family_fingerprint);
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
-        relay_type_distirbution[type_idx]
-            .relays
-            .push(Rc::clone(relay));
-        relay_type_distirbution[type_idx]
-            .weights
-            .push(relay.bandwidth);
-        relay_type_distirbution[type_idx].bandwidth_sum += relay.bandwidth;
 
-        let mut port_array = [INIT_PORT_ARRAY; u16::MAX as usize];
+        let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize]);
 
         for policy in &relay.exit_policies.rules {
             /* We only consider rules that apply to ALL IP addresses. */
@@ -602,81 +541,97 @@ fn compute_tor_relay_type_distributions<'a>(
                 }
             }
         }
-        for index in 0..port_array.len() {
-            if port_array[index] == Some(descriptor::ExitPolicyType::Accept) {
-                println!("added: {} for port:{}", relay.nickname, index);
-                relay_type_distirbution[type_idx].exit_policy_nodes[index].push(Rc::clone(relay));
+
+        let guard_weight =
+            relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
+        guard_distr.relays.push(Rc::clone(relay));
+        guard_distr.weights.push(guard_weight);
+        guard_distr.bandwidth_sum += guard_weight;
+
+        let middle_weight =
+            relay.bandwidth * positional_weight(Position::Middle, relay_type, consensus_weights);
+        middle_distr.relays.push(Rc::clone(relay));
+        middle_distr.weights.push(middle_weight);
+        middle_distr.bandwidth_sum += middle_weight;
+
+        for port in 0..port_array.len() {
+            if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
+                let exit_weight = relay.bandwidth
+                    * positional_weight(Position::Exit, relay_type, consensus_weights);
+                if let None = exit_distr[port] {
+                        exit_distr[port] = Some(RelayDistribution::default());
+                }
+                let distr = exit_distr[port].as_mut().unwrap();
+                distr.relays.push(Rc::clone(relay));
+                distr.weights.push(exit_weight);
+                distr.bandwidth_sum += exit_weight;
             }
         }
     }
 }
-fn init_consenus_weights(
-    guard: &mut [u64; RelayType::COUNT],
-    middle: &mut [u64; RelayType::COUNT],
-    exit: &mut [u64; RelayType::COUNT],
-    c_bw: &BTreeMap<String, u64>,
-) {
-    guard[RelayType::GuardAndExit as usize] = *c_bw.get("Wgd").unwrap();
-    guard[RelayType::Guard as usize] = *c_bw.get("Wgg").unwrap();
-    guard[RelayType::Exit as usize] = 0;
-    guard[RelayType::NotFlagged as usize] = *c_bw.get("Wgm").unwrap();
-    middle[RelayType::GuardAndExit as usize] = *c_bw.get("Wmd").unwrap();
-    middle[RelayType::Guard as usize] = *c_bw.get("Wmg").unwrap();
-    middle[RelayType::Exit as usize] = *c_bw.get("Wme").unwrap();
-    middle[RelayType::NotFlagged as usize] = *c_bw.get("Wmm").unwrap();
-    exit[RelayType::GuardAndExit as usize] = *c_bw.get("Wed").unwrap();
-    exit[RelayType::Guard as usize] = *c_bw.get("Weg").unwrap();
-    exit[RelayType::Exit as usize] = *c_bw.get("Wee").unwrap();
-    exit[RelayType::NotFlagged as usize] = *c_bw.get("Wem").unwrap();
+
+fn positional_weight(
+    position: Position,
+    relay_type: RelayType,
+    consensus_weights: &BTreeMap<String, u64>,
+) -> u64 {
+    match position {
+        Position::Guard => match relay_type {
+            RelayType::Exit => 0,
+            RelayType::Guard => *consensus_weights.get("Wgg").unwrap(),
+            RelayType::GuardAndExit => *consensus_weights.get("Wgd").unwrap(),
+            RelayType::NotFlagged => *consensus_weights.get("Wgm").unwrap(),
+        },
+        Position::Middle => match relay_type {
+            RelayType::Exit => *consensus_weights.get("Wme").unwrap(),
+            RelayType::Guard => *consensus_weights.get("Wmg").unwrap(),
+            RelayType::GuardAndExit => *consensus_weights.get("Wmd").unwrap(),
+            RelayType::NotFlagged => *consensus_weights.get("Wmm").unwrap(),
+        },
+        Position::Exit => match relay_type {
+            RelayType::Exit => *consensus_weights.get("Wee").unwrap(),
+            RelayType::Guard => *consensus_weights.get("Weg").unwrap(),
+            RelayType::GuardAndExit => *consensus_weights.get("Wed").unwrap(),
+            RelayType::NotFlagged => *consensus_weights.get("Wem").unwrap(),
+        },
+    }
 }
 impl<'a> CircuitGenerator {
     pub fn new(
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
     ) -> Self {
-        let mut relay_type_distirbution: [RelayTypeDistribution; RelayType::COUNT] =
-            Default::default();
-        let mut family_agreement = mutal_agreement::MutalAgreement::new();
-        let relays = compute_tor_circuit_relays(consensus, descriptors);
-        compute_tor_relay_type_distributions(
-            &relays,
-            &mut relay_type_distirbution,
-            &mut family_agreement,
-        );
 
-        let mut guard_consensus_weights = [0; RelayType::COUNT];
-        let mut middle_consensus_weights = [0; RelayType::COUNT];
-        let mut exit_consensus_weights = [0; RelayType::COUNT];
-        init_consenus_weights(
-            &mut guard_consensus_weights,
-            &mut middle_consensus_weights,
-            &mut exit_consensus_weights,
+        const INIT_EXIT_DISTR: Option<RelayDistribution> = None;
+
+        let mut family_agreement = mutal_agreement::MutalAgreement::new();
+
+        let relays = compute_tor_circuit_relays(consensus, descriptors);
+        let mut guard_distr: RelayDistribution = RelayDistribution::default();
+        let mut middle_distr: RelayDistribution = RelayDistribution::default();
+        let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
+        for port in 0.. u16::MAX {
+            exit_distr.push(None);
+        }
+        prepare_distributions(
+            &relays,
+            &mut guard_distr,
+            &mut middle_distr,
+            &mut exit_distr,
+            &mut family_agreement,
             &consensus.weights,
         );
-        let guard_weights =
-            compute_weights(guard_consensus_weights.to_vec(), &relay_type_distirbution);
-        let middle_weights =
-            compute_weights(middle_consensus_weights.to_vec(), &relay_type_distirbution);
-        let exit_weights =
-            compute_weights(exit_consensus_weights.to_vec(), &relay_type_distirbution);
-        let exit_distr = WeightedAliasIndex::new(exit_weights.to_vec()).unwrap();
-        let middle_distr = WeightedAliasIndex::new(guard_weights.to_vec()).unwrap();
-        let guard_distr = WeightedAliasIndex::new(middle_weights.to_vec()).unwrap();
-        let rand = thread_rng();
-        for relay_type in RelayType::iter() {
-            let type_idx = relay_type as usize;
-            relay_type_distirbution[type_idx].distr =
-                WeightedAliasIndex::new(relay_type_distirbution[type_idx].weights.clone()).unwrap();
+        guard_distr.distr = WeightedAliasIndex::new(guard_distr.weights.clone()).unwrap();
+        middle_distr.distr = WeightedAliasIndex::new(middle_distr.weights.clone()).unwrap();
+        for port_distr in exit_distr.iter_mut() {
+            if let Some(distr) = port_distr {
+                distr.distr = WeightedAliasIndex::new(distr.weights.clone()).unwrap();
+            }
         }
-
         CircuitGenerator {
             relays,
-            relay_type_distirbution,
-            exit_weights,
             exit_distr,
-            guard_weights,
             guard_distr,
-            middle_weights,
             middle_distr,
             family_agreement,
         }
