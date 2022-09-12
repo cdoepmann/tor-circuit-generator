@@ -52,7 +52,7 @@ impl std::error::Error for TorGeneratorError {}
 #[derive(Debug)]
 pub enum TorGeneratorError {
     NoRelayFoundForThisPort(u16),
-    UnableToSelectGuard(u16),
+    UnableToSelectGuard,
     UnableToSelectExit(u16),
 }
 
@@ -60,10 +60,10 @@ impl fmt::Display for TorGeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TorGeneratorError::NoRelayFoundForThisPort(port) => {
-                write!(f, "Could not find a suitable Relay for port {}", port)
+                write!(f, "Could not find a suitable relay for port: {}", port)
             }
-            TorGeneratorError::UnableToSelectGuard(port) => {
-                write!(f, "Could not select a guard relay for port: {}", port)
+            TorGeneratorError::UnableToSelectGuard => {
+                write!(f, "Could not select a guard relay")
             }
             TorGeneratorError::UnableToSelectExit(port) => {
                 write!(f, "Could not select an exit relay for port: {}", port)
@@ -152,9 +152,7 @@ fn compute_weights<'a>(
         let type_idx = relay_type as usize;
         println!(
             "Idx: {} input weight: {} bandwidth_sum: {}",
-            type_idx,
-            input_weights[type_idx],
-            relay_type_distirbution[type_idx].bandwidth_sum
+            type_idx, input_weights[type_idx], relay_type_distirbution[type_idx].bandwidth_sum
         );
         weights[type_idx] =
             input_weights[type_idx] * relay_type_distirbution[type_idx].bandwidth_sum;
@@ -204,6 +202,7 @@ fn compute_weights<'a>(
              path building algorithm uses this flag; see path-spec.txt
 
 */
+const MAX_SAMPLE_TRYS: u32 = 1000;
 struct TorCircuitConstruction<'a> {
     guard: Option<Rc<TorCircuitRelay>>,
     middle: Vec<Rc<TorCircuitRelay>>,
@@ -213,6 +212,7 @@ struct TorCircuitConstruction<'a> {
     cg: &'a CircuitGenerator,
 }
 impl<'a> TorCircuitConstruction<'a> {
+
     pub fn new(cg: &'a CircuitGenerator) -> Self {
         TorCircuitConstruction {
             guard: None,
@@ -224,53 +224,137 @@ impl<'a> TorCircuitConstruction<'a> {
         }
     }
 
-    pub fn add_exit_relay(&self, target_port: u16) ->  Result<(), Box<dyn std::error::Error>> {
-        
+    pub fn add_exit_relay(&mut self, target_port: u16) -> Result<(), Box<dyn std::error::Error>> {
+        let exit_relay = self.sample_exit_relay(target_port)?;
+        self.update_requirements(&exit_relay);
+        self.relays.push(Rc::clone(&exit_relay));
+        self.exit = Some(Rc::clone(&exit_relay));
         Ok(())
     }
-}
+    pub fn add_guard_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut guard_relay = self.sample_guard_relay();
+        for i in 0..MAX_SAMPLE_TRYS {
+            if self.check_requirements(&guard_relay) {
+                self.update_requirements(&guard_relay);
+                self.relays.push(Rc::clone(&guard_relay));
+                self.guard = Some(Rc::clone(&guard_relay));
+                ()
+            }
+            guard_relay = self.sample_guard_relay();
+        }
+        Err(Box::new(TorGeneratorError::UnableToSelectGuard))
+    }
 
-fn circuit_check_requirements(
-    req: &mut TorCircuitConstruction,
-    relay: Rc<TorCircuitRelay>,
-    cg: &CircuitGenerator,
-) -> bool {
-    for circ_relay in &req.relays {
-        let circ_relay_fingerprint_str = format!("{}", circ_relay.fingerprint);
-        let relay_fingerprint_str = format!("{}", relay.fingerprint);
-        if cg.family_agreement.agreement_exists(
-            circ_relay_fingerprint_str.as_str(),
-            relay_fingerprint_str.as_str(),
-        ) {
-            /*println!(
-                "Family requirements failed for: {} and {}",
-                circ_relay.nickname, relay.nickname
-            );*/
-            return false;
+    pub fn add_middle_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut middle_relay = self.sample_middle_relay();
+        for i in 0..MAX_SAMPLE_TRYS {
+            if self.check_requirements(&middle_relay) {
+                self.update_requirements(&middle_relay);
+                self.relays.push(Rc::clone(&middle_relay));
+                self.middle.push(Rc::clone(&middle_relay));
+                ()
+            }
+            middle_relay = self.sample_middle_relay();
+        }
+        Err(Box::new(TorGeneratorError::UnableToSelectGuard))
+    }
+
+    pub fn sample_exit_relay(
+        &self,
+        target_port: u16,
+    ) -> Result<Rc<TorCircuitRelay>, Box<dyn std::error::Error>> {
+        /*
+        TODO!!!!: 6x
+         * For the exit relays I also have to sample the flag_typ for each port,
+         * otherwise we will get a different distribution or wont be able to sample even if its possible.
+         * Consider general distr 0, 0.4, 0.4. 0.2
+         * but for port 443 we have #desc: 0, 2,2,43
+         *
+         * Sorry for the indices madness, but this is the way sampling works ¯\_(ツ)_/¯
+         *
+         * We know we want to sample an exit relay, but to not from which relay type:
+         * So we sample the type in the first step:
+         * exit, guardandExit, guard or Notflagged
+         *
+         * After that we check if we have a valid port
+         */
+        /*
+        TODO:
+             check if relay is valid -> , we are configured to allow
+             non-valid routers in "middle" and "rendezvous" positions.
+            guess if have to ensure this by checking and resampling if necessary,
+            due to the two layered sample approach, adjusting the distributions is not possible
+        */
+        let mut rng = thread_rng();
+        let type_idx = self.cg.exit_distr.sample(&mut rng);
+        let relay_type_distirbution = &self.cg.relay_type_distirbution[type_idx];
+        match &relay_type_distirbution.exit_policy_distr[target_port as usize] {
+            Some(distr) => Ok(
+                Rc::clone(&relay_type_distirbution.exit_policy_nodes[target_port as usize]
+                    [distr.sample(&mut rng)]),
+            ),
+            None => Err(Box::new(TorGeneratorError::NoRelayFoundForThisPort(
+                target_port,
+            ))),
         }
     }
 
+    pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay>{
+        let mut rng = thread_rng();
+        let type_idx = self.cg.guard_distr.sample(&mut rng);
+        let relay_idx = self.cg.relay_type_distirbution[type_idx].distr.sample(&mut rng);
+        Rc::clone(&self.cg.relay_type_distirbution[type_idx].relays[relay_idx])
+    }
 
-    for address in &relay.or_addresses {
-      
+    pub fn sample_middle_relay(&self) -> Rc<TorCircuitRelay>{
+        let mut rng = thread_rng();
+        let type_idx = self.cg.middle_distr.sample(&mut rng);
+        let relay_idx = self.cg.relay_type_distirbution[type_idx].distr.sample(&mut rng);
+        Rc::clone(&self.cg.relay_type_distirbution[type_idx].relays[relay_idx])
+    }
+        
+    pub fn update_requirements(&mut self, relay: &Rc<TorCircuitRelay>) {
+        for address in &relay.or_addresses {
+            let netAddr = match IpNet::new(address.ip, 16) {
+                Ok(addr) => addr,
+                Err(e) => {
+                    println!("IPNet Error: {}", e);
+                    continue;
+                }
+            };
+            self.hs_subnets.insert(netAddr);
+        }
+    }
+    pub fn check_requirements(&self, relay: & Rc<TorCircuitRelay>) -> bool {
+        for circ_relay in self.relays.iter() {
+            let circ_relay_fingerprint_str = format!("{}", circ_relay.fingerprint);
+            let relay_fingerprint_str = format!("{}", relay.fingerprint);
+            if self.cg.family_agreement.agreement_exists(
+                circ_relay_fingerprint_str.as_str(),
+                relay_fingerprint_str.as_str(),
+            ) {
+                /*println!(
+                    "Family requirements failed for: {} and {}",
+                    circ_relay.nickname, relay.nickname
+                );*/
+                return false;
+            }
+        }
+        for address in &relay.or_addresses {
             /* This is the prefix we want to consider for Tor circuits */
             let netAddr = match IpNet::new(address.ip, 16) {
                 Ok(addr) => addr,
-                Err(e) => {println!("IPNet Error: {}", e);continue;},
+                Err(e) => {
+                    println!("IPNet Error: {}", e);
+                    continue;
+                }
             };
-
-        if req.hs_subnets.contains(&netAddr) {
-            return false;
+            if self.hs_subnets.contains(&netAddr) {
+                return false;
+            }
         }
+        return true;
     }
-    for address in &relay.or_addresses {
-        let netAddr = match IpNet::new(address.ip, 16) {
-            Ok(addr) => addr,
-            Err(e) => {println!("IPNet Error: {}", e);continue;},
-        };
-        req.hs_subnets.insert(netAddr);
-    }
-    return true;
 }
 
 pub fn build_circuit(
@@ -285,30 +369,16 @@ pub fn build_circuit(
      */
 
     circ.add_guard_relay()?;
-    loop {
-        if circuit_check_requirements(&mut circ, guard, cg) {
-            break;
-        }
-        guard = sample_guard_relay(cg);
-    }
-    circ.guard = Some(guard);
-
-    let mut current_middle_relay;
+    
     for i in 0..length - 2 {
-        loop {
-            current_middle_relay = sample_middle_relay(cg);
-            if circuit_check_requirements(&mut circ, current_middle_relay, cg) {
-                break;
-            }
-        }
-        circ.middle.push(current_middle_relay);
+       circ.add_middle_relay()?;
     }
 
     // Move into circ.build_circuit() -> TorCircuit
     Ok(TorCircuit {
         guard: circ
             .guard
-            .ok_or(TorGeneratorError::UnableToSelectGuard(target_port))?,
+            .ok_or(TorGeneratorError::UnableToSelectGuard)?,
         middle: circ.middle,
         exit: circ
             .exit
@@ -330,40 +400,6 @@ fn sample_guard_relay<'a>(ps: &CircuitGenerator) -> Rc<TorCircuitRelay> {
     return sample_relay(ps, &ps.guard_distr);
 }
 
-fn sample_exit_relay(
-    cg: &CircuitGenerator,
-    target_port: u16,
-) -> Result<Rc<TorCircuitRelay>, Box<dyn std::error::Error>> {
-
-    /* TODO:
-    For the exit relays I also have to sample the flag_typ for each port,
-    otherwise we will get a different distribution or wont be able to sample even if its possible.
-    Consider general distr 0, 0.4, 0.4. 0.2
-    but for port 443 we have #desc: 0, 2,2,43
-    */
-    /*TODO check if relay is valid -> , we are configured to allow
-    non-valid routers in "middle" and "rendezvous" positions.
-
-    guess if have to ensure this by checking and resampling if necessary,
-    due to the two layered sample approach, adjusting the distributions is not possible
-    */
-    let mut rng = thread_rng();
-
-    /* Sorry for the indices madness, but this is the way sampling works ¯\_(ツ)_/¯
-     * We know we want to sample an exit relay, but to not from which relay-type: 
-     * exit, guardandExit, guard or none_of them
-     */
-    let type_idx = cg.exit_distr.sample(&mut rng);
-    // TODO const exit_usize: usize = Flag::Exit as usize;
-    // TODO const guard_and_exit_usize: usize = Flag::GuardAndExit as usize;
-    match &cg.relay_type_distirbution[type_idx].exit_policy_distr[target_port as usize] {
-        Some(distr) => Ok(cg.relay_type_distirbution[type_idx].exit_policy_nodes
-            [target_port as usize][distr.sample(&mut rng)]),
-        None => Err(Box::new(TorGeneratorError::NoRelayFoundForThisPort(
-            target_port,
-        ))),
-    }
-}
 fn sample_relay(cg: &CircuitGenerator, distr: &WeightedAliasIndex<u64>) -> Rc<TorCircuitRelay> {
     let mut rng = thread_rng();
     let type_idx = distr.sample(&mut rng);
@@ -407,7 +443,7 @@ fn compute_tor_circuit_relays<'a>(
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
-    let c_bw = &consensus.weights;
+
     let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
         .into_iter()
         .filter(|d| d.digest.is_some())
@@ -548,10 +584,10 @@ fn compute_tor_relay_type_distributions<'a>(
         relay_type_distirbution[type_idx]
             .relays
             .push(Rc::clone(relay));
-            relay_type_distirbution[type_idx]
+        relay_type_distirbution[type_idx]
             .weights
             .push(relay.bandwidth);
-            relay_type_distirbution[type_idx].bandwidth_sum += relay.bandwidth;
+        relay_type_distirbution[type_idx].bandwidth_sum += relay.bandwidth;
 
         let mut port_array = [INIT_PORT_ARRAY; u16::MAX as usize];
 
@@ -560,7 +596,6 @@ fn compute_tor_relay_type_distributions<'a>(
             if policy.address != descriptor::ExitPolicyAddress::Wildcard {
                 continue;
             }
-
             for i in compute_range_from_port(&policy.port) {
                 if port_array[i] == None {
                     port_array[i] = Some(policy.ep_type);
@@ -569,8 +604,8 @@ fn compute_tor_relay_type_distributions<'a>(
         }
         for index in 0..port_array.len() {
             if port_array[index] == Some(descriptor::ExitPolicyType::Accept) {
-                relay_type_distirbution[type_idx].exit_policy_nodes[index]
-                    .push(Rc::clone(relay));
+                println!("added: {} for port:{}", relay.nickname, index);
+                relay_type_distirbution[type_idx].exit_policy_nodes[index].push(Rc::clone(relay));
             }
         }
     }
@@ -631,8 +666,7 @@ impl<'a> CircuitGenerator {
         for relay_type in RelayType::iter() {
             let type_idx = relay_type as usize;
             relay_type_distirbution[type_idx].distr =
-                WeightedAliasIndex::new(relay_type_distirbution[type_idx].weights.clone())
-                    .unwrap();
+                WeightedAliasIndex::new(relay_type_distirbution[type_idx].weights.clone()).unwrap();
         }
 
         CircuitGenerator {

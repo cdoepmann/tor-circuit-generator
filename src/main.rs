@@ -3,7 +3,7 @@ use torscaler::parser;
 use std::fs::File;
 use std::io::prelude::*;
 pub mod lib;
-use crate::lib::CircuitGenerator;
+use crate::lib::*;
 
 fn main() {
     println!("Hello, world!");
@@ -26,5 +26,16 @@ fn main() {
             parser::parse_descriptors(&raw).unwrap()
     };
 
-    /*let circuit_generator : CircuitGenerator = */CircuitGenerator::new(&consensus, descriptors);
+    let circuit_generator : CircuitGenerator = CircuitGenerator::new(&consensus, descriptors);
+
+    println!("Start building circuits!");
+    for i in 0..100000 {
+        let mut circs = vec![];
+        //let port = (i % 65535);
+        match build_circuit(&circuit_generator, 3, 443) {
+            Ok(circ) => {circs.push(circ)},
+            Err(err) => {println!("{}",err);},
+        }
+    }
+    println!("Done!");
 }
