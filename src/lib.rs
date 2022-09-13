@@ -24,6 +24,50 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 use torscaler::parser::descriptor;
 use torscaler::parser::meta;
 use torscaler::parser::*;
+// For debugging
+use std::time::Instant;
+
+const BENCH_ENABLED : bool = true;
+pub struct Bench {
+    timer : std::time::Instant,
+    tag : String,
+}
+impl Bench {
+    pub fn measure(&mut self, tag : &str, condition: bool) {
+        if !condition {
+            return;
+        }
+        let elapsed = self.timer.elapsed();
+        if self.tag != "" {
+            println!("{}: {:.2?}", self.tag, elapsed);
+        }
+        self.tag = String::from(tag);
+        self.timer = Instant::now();
+    }
+
+    pub fn reset(&mut self) {
+        self.timer = Instant::now();
+        self.tag = String::from("");
+    }
+
+    pub fn new() -> Self {
+        Bench {
+            timer : Instant::now(),
+            tag : String::from(""),
+        }
+    }
+}
+impl Drop for Bench {
+    fn drop(&mut self) {
+        let elapsed = self.timer.elapsed();
+        if self.tag != "" {
+            println!("{}: {:.2?}", self.tag, elapsed);
+        }
+    }
+}
+
+
+
 
 /*For example Exit:
  *                                                          weg * sum(bandwidth_Guard_flagged_relays)
@@ -211,7 +255,7 @@ impl<'a> TorCircuitConstruction<'a> {
                 self.update_requirements(&guard_relay);
                 self.relays.push(Rc::clone(&guard_relay));
                 self.guard = Some(Rc::clone(&guard_relay));
-                return Ok(())
+                return Ok(());
             }
             guard_relay = self.sample_guard_relay();
         }
@@ -261,16 +305,11 @@ impl<'a> TorCircuitConstruction<'a> {
         match &self.cg.exit_distr[target_port as usize] {
             Some(distr) => {
                 let mut rng = thread_rng();
-                let relay_idx = 
-                    distr.distr
-                    .sample(&mut rng);
-                Ok(Rc::clone(
-                    &distr.relays[relay_idx],
-                ))
+                let relay_idx = distr.distr.sample(&mut rng);
+                Ok(Rc::clone(&distr.relays[relay_idx]))
             }
-            None => Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port)))
+            None => Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port))),
         }
-        
     }
 
     pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay> {
@@ -383,12 +422,15 @@ fn compute_tor_circuit_relays<'a>(
     consensus: &'a consensus::ConsensusDocument,
     descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
 ) -> Vec<Rc<TorCircuitRelay>> {
+    println!("\tComputing Circuit Relays");
     let mut missingDescriptors = 0;
     let mut buildFailed = 0;
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
+    let mut bench = Bench::new();
 
+    bench.measure("\t\t Compute Fingerprint -> Descriptor hashmap", BENCH_ENABLED);
     let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
         .into_iter()
         .filter(|d| d.digest.is_some())
@@ -401,6 +443,8 @@ fn compute_tor_circuit_relays<'a>(
         })
         .collect();
 
+
+    bench.measure("\t\t Nicknames to fingerprints", BENCH_ENABLED);
     let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
     {
         for relay in consensus.relays.iter() {
@@ -417,7 +461,11 @@ fn compute_tor_circuit_relays<'a>(
         }
     }
 
+    bench.measure("\t\t Consensus relays", BENCH_ENABLED);
+    println!("\t\t {} x ", consensus.relays.len());
+    let mut first = true;
     for consensus_relay in consensus.relays.iter() {
+        bench.measure("\t\t\t pre-checks", BENCH_ENABLED && first);
         let result = descriptors.remove(&consensus_relay.digest).ok_or_else(|| {
             DocumentCombiningError::MissingDescriptor {
                 digest: consensus_relay.digest.clone(),
@@ -444,11 +492,11 @@ fn compute_tor_circuit_relays<'a>(
                 continue;
             }
         };
-
+        bench.measure("\t\t\t Init struct", BENCH_ENABLED && first);
         let mut circuit_relay = TorCircuitRelayBuilder::default();
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
-
+        bench.measure("\t\t\t Construct family", BENCH_ENABLED && first);
         let known_fingerprints: HashSet<Fingerprint> = consensus
             .relays
             .iter()
@@ -486,6 +534,7 @@ fn compute_tor_circuit_relays<'a>(
                 );
             }
         };
+        bench.measure("\t\t\t building", BENCH_ENABLED && first);
         circuit_relay.nickname = descriptor.nickname;
         let mut flags = vec![];
         for flag in consensus_relay.flags.iter() {
@@ -505,8 +554,10 @@ fn compute_tor_circuit_relays<'a>(
         };
 
         relays.push(Rc::new(relay));
+        bench.measure("", BENCH_ENABLED);
+        first = false;
     }
-    println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
+    //println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
     relays
 }
 
@@ -518,16 +569,21 @@ pub fn prepare_distributions(
     family_agreement: &mut mutal_agreement::MutalAgreement,
     consensus_weights: &BTreeMap<String, u64>,
 ) {
+    println!("\t Prepare Distributions:");
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
+    println!("\t {} x ", relays.len());
+    let mut first = true;
+    let mut bench = Bench::new();
     for relay in relays.iter() {
+        bench.measure("\t\t Determine Relay type", BENCH_ENABLED && first);
         let relay_type = determine_relay_type(&relay);
-
         let relay_fingerprint_str = format!("{}", relay.fingerprint);
+        bench.measure("\t\t Fingerprint", BENCH_ENABLED && first);
         for family_fingerprint in &relay.family {
             let family_fingerprint_str = format!("{}", family_fingerprint);
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
-
+        bench.measure("\t\t Position Exit Calculations", BENCH_ENABLED && first);
         let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize]);
 
         for policy in &relay.exit_policies.rules {
@@ -542,6 +598,20 @@ pub fn prepare_distributions(
             }
         }
 
+        for port in 0..port_array.len() {
+            if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
+                let exit_weight = relay.bandwidth
+                    * positional_weight(Position::Exit, relay_type, consensus_weights);
+                if let None = exit_distr[port] {
+                    exit_distr[port] = Some(RelayDistribution::default());
+                }
+                let distr = exit_distr[port].as_mut().unwrap();
+                distr.relays.push(Rc::clone(relay));
+                distr.weights.push(exit_weight);
+                distr.bandwidth_sum += exit_weight;
+            }
+        }
+        bench.measure("\t\t Position Guard/Middle", BENCH_ENABLED && first);
         let guard_weight =
             relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
         guard_distr.relays.push(Rc::clone(relay));
@@ -553,20 +623,8 @@ pub fn prepare_distributions(
         middle_distr.relays.push(Rc::clone(relay));
         middle_distr.weights.push(middle_weight);
         middle_distr.bandwidth_sum += middle_weight;
-
-        for port in 0..port_array.len() {
-            if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
-                let exit_weight = relay.bandwidth
-                    * positional_weight(Position::Exit, relay_type, consensus_weights);
-                if let None = exit_distr[port] {
-                        exit_distr[port] = Some(RelayDistribution::default());
-                }
-                let distr = exit_distr[port].as_mut().unwrap();
-                distr.relays.push(Rc::clone(relay));
-                distr.weights.push(exit_weight);
-                distr.bandwidth_sum += exit_weight;
-            }
-        }
+        bench.measure("", BENCH_ENABLED && first);
+        first = false;
     }
 }
 
@@ -601,18 +659,22 @@ impl<'a> CircuitGenerator {
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
     ) -> Self {
-
         const INIT_EXIT_DISTR: Option<RelayDistribution> = None;
 
         let mut family_agreement = mutal_agreement::MutalAgreement::new();
 
+        println!("Computing new Circuit Generator");
+        let mut bench = Bench::new();
+        bench.measure("\t Compute tor circuit relays", BENCH_ENABLED);
         let relays = compute_tor_circuit_relays(consensus, descriptors);
+        bench.measure("\t Init distributions", BENCH_ENABLED);
         let mut guard_distr: RelayDistribution = RelayDistribution::default();
         let mut middle_distr: RelayDistribution = RelayDistribution::default();
         let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
-        for port in 0.. u16::MAX {
+        for port in 0..u16::MAX {
             exit_distr.push(None);
         }
+        bench.measure("\t Prepare distributions", BENCH_ENABLED);
         prepare_distributions(
             &relays,
             &mut guard_distr,
@@ -621,8 +683,10 @@ impl<'a> CircuitGenerator {
             &mut family_agreement,
             &consensus.weights,
         );
+        bench.measure("\t Compute distributions Guard/Middle", BENCH_ENABLED);
         guard_distr.distr = WeightedAliasIndex::new(guard_distr.weights.clone()).unwrap();
         middle_distr.distr = WeightedAliasIndex::new(middle_distr.weights.clone()).unwrap();
+        bench.measure("\t Compute distributions Exit", BENCH_ENABLED);
         for port_distr in exit_distr.iter_mut() {
             if let Some(distr) = port_distr {
                 distr.distr = WeightedAliasIndex::new(distr.weights.clone()).unwrap();

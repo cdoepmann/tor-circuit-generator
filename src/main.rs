@@ -7,7 +7,7 @@ use crate::lib::*;
 use std::time::Instant;
 
 fn main() {
-    println!("Hello, world!");
+    println!("Benchmarking");
     let asn_db_file_path = "data/GeoLite2-ASN-Blocks-IPv4.csv";
     let consensus_file_path = "data/test.consensus";
     let desc_file_path = "data/test.descriptors";
@@ -38,16 +38,16 @@ fn main() {
     let elapsed = now.elapsed();
     println!("Preprocessing Cuircuit building: {:.2?}", elapsed);
     println!("Start building circuits!");
-    let now = Instant::now();
+    let mut bench = Bench::new();
+    let mut circs = vec![];
     for i in 0..1000000 {
-        let mut circs = vec![];
-        //let port = (i % 65535);
+        bench.measure("Built 100.000 Circuits", i % 100000 == 0);
         match build_circuit(&circuit_generator, 3, 443) {
             Ok(circ) => {circs.push(circ)},
             Err(err) => {println!("{}",err);},
         }
+
     }
-    let elapsed = now.elapsed();
-    println!("Building circuits: {:.2?}", elapsed);
+    bench.measure("", true);
     println!("Done!");
 }
