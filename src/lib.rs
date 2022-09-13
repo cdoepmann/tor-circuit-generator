@@ -463,6 +463,29 @@ fn compute_tor_circuit_relays<'a>(
 
     bench.measure("\t\t Consensus relays", BENCH_ENABLED);
     println!("\t\t {} x ", consensus.relays.len());
+    let known_fingerprints: HashSet<Fingerprint> = consensus
+    .relays
+    .iter()
+    .map(|r| r.fingerprint.clone())
+    .collect();
+
+let filter_family_member = |f: descriptor::FamilyMember| match f {
+    descriptor::FamilyMember::Fingerprint(fingerprint) => {
+        if known_fingerprints.contains(&fingerprint) {
+            Some(fingerprint)
+        } else {
+            None
+        }
+    }
+    descriptor::FamilyMember::Nickname(nickname) => {
+        if let Some(entry) = nicknames_to_fingerprints.get(&nickname) {
+            if let Some(fingerprint) = entry {
+                return Some(fingerprint.clone());
+            }
+        }
+        None
+    }
+};
     let mut first = true;
     for consensus_relay in consensus.relays.iter() {
         bench.measure("\t\t\t pre-checks", BENCH_ENABLED && first);
@@ -497,29 +520,7 @@ fn compute_tor_circuit_relays<'a>(
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
         bench.measure("\t\t\t Construct family", BENCH_ENABLED && first);
-        let known_fingerprints: HashSet<Fingerprint> = consensus
-            .relays
-            .iter()
-            .map(|r| r.fingerprint.clone())
-            .collect();
-
-        let filter_family_member = |f: descriptor::FamilyMember| match f {
-            descriptor::FamilyMember::Fingerprint(fingerprint) => {
-                if known_fingerprints.contains(&fingerprint) {
-                    Some(fingerprint)
-                } else {
-                    None
-                }
-            }
-            descriptor::FamilyMember::Nickname(nickname) => {
-                if let Some(entry) = nicknames_to_fingerprints.get(&nickname) {
-                    if let Some(fingerprint) = entry {
-                        return Some(fingerprint.clone());
-                    }
-                }
-                None
-            }
-        };
+       
         match descriptor.family_members {
             None => {
                 continue;
