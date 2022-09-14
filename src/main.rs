@@ -1,4 +1,5 @@
 use torscaler::parser;
+use torscaler::parser::consensus;
 
 use std::char::MAX;
 use std::collections::HashMap;
@@ -71,6 +72,26 @@ fn main() {
     );
     println!("My expectaion would have been that this is \"kinda\" balanced");
     println!("Exit is already quite under represented. How does this look like for less used, but common ports?");
+    //let relay_bw_sum = circuit_generator.relays.iter().reduce()
+    /* Calculate max possible exit bandwidth */
+    let mut sum = 0;
+    for relay in circuit_generator.relays.into_iter() {
+        let mut weight = 0;
+        let guard = consensus::Flag::Guard;
+        let exit = consensus::Flag::Exit;
+
+        if relay.flags.contains(&guard) && relay.flags.contains(&exit) {
+            weight = *consensus.weights.get("Wed").unwrap();
+        } else if relay.flags.contains(&exit) {
+            weight = *consensus.weights.get("Wee").unwrap();
+        } else if relay.flags.contains(&guard) {
+            weight = *consensus.weights.get("Weg").unwrap();
+        } else {
+            weight = *consensus.weights.get("Wem").unwrap();
+        }
+        sum += weight * relay.bandwidth;
+    }
+    println!("Max possible exit bandwidth: {}", sum);
 
     let reference_value = circuit_generator.exit_distr[63535]
         .as_ref()
@@ -123,6 +144,6 @@ fn main() {
         }
         println!("");
     }
-    //let relay_bw_sum = circuit_generator.relays.iter().reduce()
+
     println!("Done!");
 }

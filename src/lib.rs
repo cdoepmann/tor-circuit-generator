@@ -27,13 +27,13 @@ use torscaler::parser::*;
 // For debugging
 use std::time::Instant;
 
-const BENCH_ENABLED : bool = true;
+const BENCH_ENABLED: bool = true;
 pub struct Bench {
-    timer : std::time::Instant,
-    tag : String,
+    timer: std::time::Instant,
+    tag: String,
 }
 impl Bench {
-    pub fn measure(&mut self, tag : &str, condition: bool) {
+    pub fn measure(&mut self, tag: &str, condition: bool) {
         if !condition {
             return;
         }
@@ -52,8 +52,8 @@ impl Bench {
 
     pub fn new() -> Self {
         Bench {
-            timer : Instant::now(),
-            tag : String::from(""),
+            timer: Instant::now(),
+            tag: String::from(""),
         }
     }
 }
@@ -65,9 +65,6 @@ impl Drop for Bench {
         }
     }
 }
-
-
-
 
 /*For example Exit:
  *                                                          weg * sum(bandwidth_Guard_flagged_relays)
@@ -82,14 +79,14 @@ pub struct OrAddressNet {
 
 #[derive(Debug, Builder, Clone)]
 pub struct TorCircuitRelay {
-    fingerprint: torscaler::parser::meta::Fingerprint,
-    family: Vec<Fingerprint>,
-    or_addresses: Vec<torscaler::parser::descriptor::OrAddress>,
-    bandwidth: u64,
-    flags: Vec<consensus::Flag>,
+    pub fingerprint: torscaler::parser::meta::Fingerprint,
+    pub family: Vec<Fingerprint>,
+    pub or_addresses: Vec<torscaler::parser::descriptor::OrAddress>,
+    pub bandwidth: u64,
+    pub flags: Vec<consensus::Flag>,
     /* For easier debugging */
-    nickname: String,
-    exit_policies: descriptor::DescriptorExitPolicy,
+    pub nickname: String,
+    pub exit_policies: descriptor::DescriptorExitPolicy,
 }
 
 impl std::error::Error for TorGeneratorError {}
@@ -430,7 +427,10 @@ fn compute_tor_circuit_relays<'a>(
     let mut droppped_not_running = 0;
     let mut bench = Bench::new();
 
-    bench.measure("\t\t Compute Fingerprint -> Descriptor hashmap", BENCH_ENABLED);
+    bench.measure(
+        "\t\t Compute Fingerprint -> Descriptor hashmap",
+        BENCH_ENABLED,
+    );
     let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
         .into_iter()
         .filter(|d| d.digest.is_some())
@@ -442,7 +442,6 @@ fn compute_tor_circuit_relays<'a>(
             )
         })
         .collect();
-
 
     bench.measure("\t\t Nicknames to fingerprints", BENCH_ENABLED);
     let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
@@ -464,28 +463,28 @@ fn compute_tor_circuit_relays<'a>(
     bench.measure("\t\t Consensus relays", BENCH_ENABLED);
     println!("\t\t {} x ", consensus.relays.len());
     let known_fingerprints: HashSet<Fingerprint> = consensus
-    .relays
-    .iter()
-    .map(|r| r.fingerprint.clone())
-    .collect();
+        .relays
+        .iter()
+        .map(|r| r.fingerprint.clone())
+        .collect();
 
-let filter_family_member = |f: descriptor::FamilyMember| match f {
-    descriptor::FamilyMember::Fingerprint(fingerprint) => {
-        if known_fingerprints.contains(&fingerprint) {
-            Some(fingerprint)
-        } else {
-            None
-        }
-    }
-    descriptor::FamilyMember::Nickname(nickname) => {
-        if let Some(entry) = nicknames_to_fingerprints.get(&nickname) {
-            if let Some(fingerprint) = entry {
-                return Some(fingerprint.clone());
+    let filter_family_member = |f: descriptor::FamilyMember| match f {
+        descriptor::FamilyMember::Fingerprint(fingerprint) => {
+            if known_fingerprints.contains(&fingerprint) {
+                Some(fingerprint)
+            } else {
+                None
             }
         }
-        None
-    }
-};
+        descriptor::FamilyMember::Nickname(nickname) => {
+            if let Some(entry) = nicknames_to_fingerprints.get(&nickname) {
+                if let Some(fingerprint) = entry {
+                    return Some(fingerprint.clone());
+                }
+            }
+            None
+        }
+    };
     let mut first = true;
     for consensus_relay in consensus.relays.iter() {
         bench.measure("\t\t\t pre-checks", BENCH_ENABLED && first);
@@ -520,7 +519,7 @@ let filter_family_member = |f: descriptor::FamilyMember| match f {
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
         bench.measure("\t\t\t Construct family", BENCH_ENABLED && first);
-       
+
         match descriptor.family_members {
             None => {
                 continue;
