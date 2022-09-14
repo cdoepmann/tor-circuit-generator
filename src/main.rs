@@ -56,22 +56,21 @@ fn main() {
 
     /* Sanity Check #1 */
     println!(
-        "Guard weight:\t{}",
+        "Guard weight:\t\t{}",
         circuit_generator.guard_distr.bandwidth_sum
     );
     println!(
-        "Middle weight:\t{}",
+        "Middle weight:\t\t{}",
         circuit_generator.middle_distr.bandwidth_sum
     );
     println!(
-        "Exit weight:\t{}",
+        "Exit (443) weight:\t{}",
         circuit_generator.exit_distr[443]
             .as_ref()
             .unwrap()
             .bandwidth_sum
     );
-    println!("My expectaion would have been that this is \"kinda\" balanced");
-    println!("Exit is already quite under represented. How does this look like for less used, but common ports?");
+
     //let relay_bw_sum = circuit_generator.relays.iter().reduce()
     /* Calculate max possible exit bandwidth */
     let mut sum = 0;
@@ -91,8 +90,10 @@ fn main() {
         }
         sum += weight * relay.bandwidth;
     }
-    println!("Max possible exit bandwidth: {}", sum);
+    println!("Exit (Max) weight:\t{}", sum);
 
+    println!("My expectaion would have been that this is \"kinda\" balanced");
+    println!("Exit is already quite under represented. How does this look like for less used, but common ports?");
     let reference_value = circuit_generator.exit_distr[63535]
         .as_ref()
         .unwrap()
