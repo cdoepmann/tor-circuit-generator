@@ -611,12 +611,13 @@ pub fn prepare_distributions(
             }
         }
         bench.measure("\t\t Position Guard/Middle", BENCH_ENABLED && first);
-        let guard_weight =
-            relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
-        guard_distr.relays.push(Rc::clone(relay));
-        guard_distr.weights.push(guard_weight);
-        guard_distr.bandwidth_sum += guard_weight;
-
+        if relay.flags.contains(&consensus::Flag::Guard) {
+            let guard_weight =
+                relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
+            guard_distr.relays.push(Rc::clone(relay));
+            guard_distr.weights.push(guard_weight);
+            guard_distr.bandwidth_sum += guard_weight;
+        }
         let middle_weight =
             relay.bandwidth * positional_weight(Position::Middle, relay_type, consensus_weights);
         middle_distr.relays.push(Rc::clone(relay));
