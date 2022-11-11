@@ -15,3 +15,5 @@ strum_macros = "0.23"
 torscaler = {path = "../torscaler"}
 ipnet = "2.5.0"
 derive_builder = "0.10.2"
+serde = { version = "1.0.103", features = ["derive"] }
+serde_json = "1.0.85"

@@ -1,5 +1,4 @@
 use derive_builder::Builder;
-use ipaddress::IPAddress;
 use ipnet;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use mutal_agreement::*;
@@ -25,6 +24,7 @@ use torscaler::parser::descriptor;
 use torscaler::parser::meta;
 use torscaler::parser::*;
 // For debugging
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 const BENCH_ENABLED: bool = true;
@@ -157,6 +157,7 @@ pub struct CircuitGenerator {
     pub family_agreement: MutalAgreement,
 }
 
+#[derive(Debug, Clone)]
 pub struct TorCircuit {
     pub guard: Rc<TorCircuitRelay>,
     pub middle: Vec<Rc<TorCircuitRelay>>,
@@ -175,6 +176,22 @@ impl<'a> fmt::Display for TorCircuit {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct CircSerde {
+    pub guard: String,
+    pub middle: String,
+    pub exit: String,
+}
+
+impl CircSerde {
+    pub fn from(circ: &TorCircuit) -> CircSerde {
+        CircSerde {
+            guard: circ.guard.fingerprint.to_string(),
+            middle: circ.middle.first().unwrap().fingerprint.to_string(),
+            exit: circ.guard.fingerprint.to_string(),
+        }
+    }
+}
 /* There is no real reason for u8 here, asides that I think larger circuits are ridiculus
     TODO OPtions: 2.2.2. User configuration
     "ExitNodes" (strict)
@@ -556,6 +573,10 @@ fn compute_tor_circuit_relays<'a>(
         bench.measure("", BENCH_ENABLED);
         first = false;
     }
+    println!("Missing Descriptors: {missingDescriptors}");
+    println!("Build failed: {buildFailed}");
+    println!("Dropped with bandwith zero: {dropped_bandwidth_0}");
+    println!("Dropped with not running flag: {droppped_not_running}");
     //println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
     relays
 }

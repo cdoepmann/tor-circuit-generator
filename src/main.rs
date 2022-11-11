@@ -4,18 +4,46 @@ use torscaler::parser::consensus;
 use std::char::MAX;
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::Hash;
 use std::io::prelude::*;
 pub mod lib;
 use crate::lib::*;
+use serde::*;
+use serde_json::*;
+use std::fs;
+use std::io::BufReader;
+use std::rc::Rc;
 use std::time::Instant;
+
+struct RelayData {
+    arti: u64,
+    tcg: u64,
+}
+impl Default for RelayData {
+    fn default() -> Self {
+        RelayData { arti: 0, tcg: 0 }
+    }
+}
+struct RelaySummary {
+    pub guard: RelayData,
+    pub middle: RelayData,
+    pub exit: RelayData,
+}
+impl Default for RelaySummary {
+    fn default() -> Self {
+        RelaySummary {
+            guard: RelayData::default(),
+            middle: RelayData::default(),
+            exit: RelayData::default(),
+        }
+    }
+}
 
 fn main() {
     println!("Benchmarking");
-    let asn_db_file_path = "data/GeoLite2-ASN-Blocks-IPv4.csv";
-    let consensus_file_path = "data/test.consensus";
-    let desc_file_path = "data/test.descriptors";
-
-    let now = Instant::now();
+    let asn_db_file_path = "./data/GeoLite2-ASN-Blocks-IPv4.csv";
+    let consensus_file_path = "./data/2022-09-01-00-00-00-consensus";
+    let torps_circuits_file_path = "./data/circ_test.txt";
     let asn_db = parser::asn::AsnDb::new(asn_db_file_path).unwrap();
     let consensus = {
         let mut raw = String::new();
@@ -24,27 +52,30 @@ fn main() {
         parser::parse_consensus(&raw, &asn_db).unwrap()
     };
 
-    let elapsed = now.elapsed();
-    println!("Parsing consensus: {:.2?}", elapsed);
-    let now = Instant::now();
-    let descriptors = {
-        // Descriptors are given as a file
-        let mut raw = String::new();
-        let mut file = File::open(desc_file_path).unwrap();
-        file.read_to_string(&mut raw).unwrap();
-        parser::parse_descriptors(&raw).unwrap()
-    };
-    let elapsed = now.elapsed();
-    println!("Parsing descriptors: {:.2?}", elapsed);
-    let now = Instant::now();
+    let descriptors =
+        torscaler::highlevel::lookup_descriptors(&consensus, consensus_file_path).unwrap();
+
     let circuit_generator: CircuitGenerator = CircuitGenerator::new(&consensus, descriptors);
-    let elapsed = now.elapsed();
-    println!("Preprocessing Cuircuit building: {:.2?}", elapsed);
+
+    let mut ip2descMap: HashMap<String, Rc<TorCircuitRelay>> = HashMap::new();
+    circuit_generator.relays.iter().for_each(|relay| {
+        relay.or_addresses.iter().for_each(|addr| {
+            ip2descMap.insert(addr.ip.to_string(), Rc::clone(relay));
+        })
+    });
+
+    let torps_epochs = parse_tor_circuit_file(torps_circuits_file_path, ip2descMap);
+
+    for epoch in torps_epochs {
+        println!("Epoch: {}", epoch.timestamp);
+        for circuit in epoch.circuits {
+            println!("{circuit}");
+        }
+    }
     println!("Start building circuits!");
     let mut bench = Bench::new();
     let mut circs = vec![];
-    for i in 0..100000 {
-        bench.measure("Built 100.000 Circuits", i % 100000 == 0);
+    for i in 0..1000000 {
         match build_circuit(&circuit_generator, 3, 443) {
             Ok(circ) => circs.push(circ),
             Err(err) => {
@@ -52,99 +83,60 @@ fn main() {
             }
         }
     }
-    bench.measure("", true);
+}
 
-    /* Sanity Check #1 */
-    println!(
-        "Guard weight:\t\t{}",
-        circuit_generator.guard_distr.bandwidth_sum
-    );
-    println!(
-        "Middle weight:\t\t{}",
-        circuit_generator.middle_distr.bandwidth_sum
-    );
-    println!(
-        "Exit (443) weight:\t{}",
-        circuit_generator.exit_distr[443]
-            .as_ref()
-            .unwrap()
-            .bandwidth_sum
-    );
+struct TorPSEpoch {
+    timestamp: u32,
+    circuits: Vec<TorCircuit>,
+}
 
-    //let relay_bw_sum = circuit_generator.relays.iter().reduce()
-    /* Calculate max possible exit bandwidth */
-    let mut sum = 0;
-    for relay in circuit_generator.relays.into_iter() {
-        let mut weight = 0;
-        let guard = consensus::Flag::Guard;
-        let exit = consensus::Flag::Exit;
-
-        if relay.flags.contains(&guard) && relay.flags.contains(&exit) {
-            weight = *consensus.weights.get("Wed").unwrap();
-        } else if relay.flags.contains(&exit) {
-            weight = *consensus.weights.get("Wee").unwrap();
-        } else if relay.flags.contains(&guard) {
-            weight = *consensus.weights.get("Weg").unwrap();
-        } else {
-            weight = *consensus.weights.get("Wem").unwrap();
-        }
-        sum += weight * relay.bandwidth;
-    }
-    println!("Exit (Max) weight:\t{}", sum);
-
-    println!("My expectaion would have been that this is \"kinda\" balanced");
-    println!("Exit is already quite under represented. How does this look like for less used, but common ports?");
-    let reference_value = circuit_generator.exit_distr[63535]
-        .as_ref()
-        .unwrap()
-        .bandwidth_sum;
-
-    let mut port_bw_map: HashMap<u64, Vec<u16>> = HashMap::new();
-    for port in 0..u16::MAX {
-        if let Some(distr) = &circuit_generator.exit_distr[port as usize] {
-            match port_bw_map.get_mut(&distr.bandwidth_sum) {
-                Some(mut value) => {
-                    value.push(port);
-                }
-                None => {
-                    port_bw_map.insert(distr.bandwidth_sum, vec![port]);
-                }
-            }
-        }
-    }
-
-    let mut keys = port_bw_map.keys().into_iter().collect::<Vec<_>>();
-    keys.sort();
-    for key in keys {
-        let value = port_bw_map.get(key).unwrap().clone();
-        print!("Available Exit Bandwidth {} for ports: ", key);
-        let mut start = value.first().unwrap();
-        let mut prev: &u16 = start;
-        for port in value.iter() {
-            if *start == *port {
-                prev = start;
+fn parse_tor_circuit_file(
+    tor_circuite_file_path: &str,
+    ip2descMap: HashMap<String, Rc<TorCircuitRelay>>,
+) -> Vec<TorPSEpoch> {
+    let mut file = File::open(tor_circuite_file_path).unwrap();
+    let reader = BufReader::new(file);
+    let mut epochs: Vec<TorPSEpoch> = vec![];
+    let mut current_timestamp = 0;
+    let mut circuits: Vec<TorCircuit> = vec![];
+    for line in reader.lines() {
+        let line = match line {
+            Err(err) => {
+                println!("Error while parsing line: {err}");
                 continue;
             }
-            if *prev + 1 == *port {
-                prev = port;
-                continue;
-            } else {
-                if *start == *prev {
-                    print!("{}, ", *start);
-                } else {
-                    print!("{}-{}, ", *start, *prev);
+            Ok(line) => line,
+        };
+        let split: Vec<&str> = line.split_whitespace().collect();
+        match split[..] {
+            [sample, timestamp, guard, middle, exit, _] => {
+                let timestamp: u32 = timestamp.parse().unwrap();
+                if timestamp != current_timestamp {
+                    println!("New Epoch started!");
+                    epochs.push(TorPSEpoch {
+                        timestamp: current_timestamp,
+                        circuits: circuits.clone(),
+                    });
+                    current_timestamp = timestamp;
+                    circuits = vec![];
                 }
-                start = port;
-                prev = port;
+                let guard = ip2descMap.get(guard).unwrap();
+                let middle = ip2descMap.get(middle).unwrap();
+                let exit = ip2descMap.get(exit).unwrap();
+                circuits.push(TorCircuit {
+                    guard: Rc::clone(guard),
+                    middle: vec![Rc::clone(middle)],
+                    exit: Rc::clone(exit),
+                })
+            }
+            _ => {
+                println!("FAILED")
             }
         }
-        if *start == *prev {
-            print!("{}, ", *start);
-        } else {
-            print!("{}-{}, ", *start, *prev);
-        }
-        println!("");
     }
-
-    println!("Done!");
+    epochs.push(TorPSEpoch {
+        timestamp: current_timestamp,
+        circuits: circuits.clone(),
+    });
+    epochs
 }
