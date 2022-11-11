@@ -192,6 +192,14 @@ impl CircSerde {
         }
     }
 }
+
+pub fn write_to_file(path: &str, circs : &Vec<TorCircuit>) {
+    let serde_circs : Vec<CircSerde> = circs.iter().map(|circ| CircSerde::from(circ)).collect();
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&serde_circs).unwrap(),
+    ).unwrap();
+}
 /* There is no real reason for u8 here, asides that I think larger circuits are ridiculus
     TODO OPtions: 2.2.2. User configuration
     "ExitNodes" (strict)

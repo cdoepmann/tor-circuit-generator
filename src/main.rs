@@ -41,9 +41,9 @@ impl Default for RelaySummary {
 
 fn main() {
     println!("Benchmarking");
-    let asn_db_file_path = "./data/GeoLite2-ASN-Blocks-IPv4.csv";
-    let consensus_file_path = "./data/2022-09-01-00-00-00-consensus";
-    let torps_circuits_file_path = "./data/circ_test.txt";
+    let asn_db_file_path = "../../data/GeoLite2-ASN-Blocks-IPv4.csv";
+    let consensus_file_path = "../../data/2022-09-01-00-00-00-consensus";
+    let torps_circuits_file_path = "../../data/circuits.txt";
     let asn_db = parser::asn::AsnDb::new(asn_db_file_path).unwrap();
     let consensus = {
         let mut raw = String::new();
@@ -66,12 +66,6 @@ fn main() {
 
     let torps_epochs = parse_tor_circuit_file(torps_circuits_file_path, ip2descMap);
 
-    for epoch in torps_epochs {
-        println!("Epoch: {}", epoch.timestamp);
-        for circuit in epoch.circuits {
-            println!("{circuit}");
-        }
-    }
     println!("Start building circuits!");
     let mut bench = Bench::new();
     let mut circs = vec![];
@@ -83,6 +77,11 @@ fn main() {
             }
         }
     }
+
+    /* Write generated circuits */
+    write_to_file("../../data/circs_generated", &circs);
+    write_to_file("../../data/circs_torps", &torps_epochs.first().unwrap().circuits);
+
 }
 
 struct TorPSEpoch {
@@ -97,9 +96,33 @@ fn parse_tor_circuit_file(
     let mut file = File::open(tor_circuite_file_path).unwrap();
     let reader = BufReader::new(file);
     let mut epochs: Vec<TorPSEpoch> = vec![];
-    let mut current_timestamp = 0;
+
     let mut circuits: Vec<TorCircuit> = vec![];
-    for line in reader.lines() {
+    let mut lines = reader.lines();
+
+    lines.next();
+    let first_line = lines.next().unwrap().unwrap();
+    let mut current_timestamp = 0;
+
+    let split: Vec<&str> = first_line.split_whitespace().collect();
+        match split[..] {
+            [sample, timestamp, guard, middle, exit, _] => {
+                let timestamp: u32 = timestamp.parse().unwrap();
+                current_timestamp = timestamp;
+                let guard = ip2descMap.get(guard).unwrap();
+                let middle = ip2descMap.get(middle).unwrap();
+                let exit = ip2descMap.get(exit).unwrap();
+                circuits.push(TorCircuit {
+                    guard: Rc::clone(guard),
+                    middle: vec![Rc::clone(middle)],
+                    exit: Rc::clone(exit),
+                })
+            }
+            _ => {
+                println!("FAILED")
+            }
+        }
+    for line in lines{
         let line = match line {
             Err(err) => {
                 println!("Error while parsing line: {err}");
@@ -113,6 +136,7 @@ fn parse_tor_circuit_file(
                 let timestamp: u32 = timestamp.parse().unwrap();
                 if timestamp != current_timestamp {
                     println!("New Epoch started!");
+                    break;
                     epochs.push(TorPSEpoch {
                         timestamp: current_timestamp,
                         circuits: circuits.clone(),
