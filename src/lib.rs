@@ -420,14 +420,14 @@ fn determine_relay_type(relay: &TorCircuitRelay) -> RelayType {
     }
 }
 
-fn compute_range_from_port(port: &descriptor::ExitPolicyPort) -> std::ops::Range<usize> {
+fn compute_range_from_port(port: &descriptor::ExitPolicyPort) -> impl IntoIterator<Item = usize> {
     match port {
         descriptor::ExitPolicyPort::Wildcard => {
-            return 0..u16::MAX.into();
+            return 1..=u16::MAX.into();
         }
         descriptor::ExitPolicyPort::Port(value) => match value {
-            descriptor::Range::Single(v) => return *v as usize..(*v + 1) as usize,
-            descriptor::Range::Interval(v1, v2) => return *v1 as usize..(*v2 + 1) as usize,
+            descriptor::Range::Single(v) => return *v as usize..=*v as usize,
+            descriptor::Range::Interval(v1, v2) => return *v1 as usize..=*v2 as usize,
         },
     }
 }
@@ -604,7 +604,7 @@ pub fn prepare_distributions(
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
         bench.measure("\t\t Position Exit Calculations", BENCH_ENABLED && first);
-        let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize]);
+        let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize + 1]);
 
         for policy in &relay.exit_policies.rules {
             /* We only consider rules that apply to ALL IP addresses. */
@@ -618,7 +618,7 @@ pub fn prepare_distributions(
             }
         }
 
-        for port in 0..port_array.len() {
+        for port in 1..port_array.len() {
             if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
                 let exit_weight = relay.bandwidth
                     * positional_weight(Position::Exit, relay_type, consensus_weights);
@@ -692,7 +692,8 @@ impl<'a> CircuitGenerator {
         let mut guard_distr: RelayDistribution = RelayDistribution::default();
         let mut middle_distr: RelayDistribution = RelayDistribution::default();
         let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
-        for port in 0..u16::MAX {
+        for _port in 0..=u16::MAX {
+            // the first item will remain unused as we index by port (1-based)
             exit_distr.push(None);
         }
         bench.measure("\t Prepare distributions", BENCH_ENABLED);
