@@ -1,28 +1,20 @@
 use derive_builder::Builder;
-use ipaddress::IPAddress;
 use ipnet;
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use ipnet::IpNet;
 use mutal_agreement::*;
 use rand::prelude::*;
-use rand::Error;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
-use std::char::MAX;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::process::exit;
 use std::rc::Rc;
-use std::slice::Iter;
 use std::vec;
-use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 use torscaler::parser::descriptor;
-use torscaler::parser::meta;
 use torscaler::parser::*;
 // For debugging
 use std::time::Instant;
@@ -255,7 +247,7 @@ impl<'a> TorCircuitConstruction<'a> {
     }
     pub fn add_guard_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut guard_relay = self.sample_guard_relay();
-        for i in 0..MAX_SAMPLE_TRYS {
+        for _ in 0..MAX_SAMPLE_TRYS {
             if self.check_requirements(&guard_relay) {
                 self.update_requirements(&guard_relay);
                 self.relays.push(Rc::clone(&guard_relay));
@@ -269,7 +261,7 @@ impl<'a> TorCircuitConstruction<'a> {
 
     pub fn add_middle_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut middle_relay = self.sample_middle_relay();
-        for i in 0..MAX_SAMPLE_TRYS {
+        for _ in 0..MAX_SAMPLE_TRYS {
             if self.check_requirements(&middle_relay) {
                 self.update_requirements(&middle_relay);
                 self.relays.push(Rc::clone(&middle_relay));
@@ -330,14 +322,14 @@ impl<'a> TorCircuitConstruction<'a> {
     }
     pub fn update_requirements(&mut self, relay: &Rc<TorCircuitRelay>) {
         for address in &relay.or_addresses {
-            let netAddr = match IpNet::new(address.ip, 16) {
+            let net_addr = match IpNet::new(address.ip, 16) {
                 Ok(addr) => addr,
                 Err(e) => {
                     println!("IPNet Error: {}", e);
                     continue;
                 }
             };
-            self.hs_subnets.insert(netAddr.to_string());
+            self.hs_subnets.insert(net_addr.to_string());
         }
     }
     pub fn check_requirements(&self, relay: &Rc<TorCircuitRelay>) -> bool {
@@ -357,14 +349,14 @@ impl<'a> TorCircuitConstruction<'a> {
         }
         for address in &relay.or_addresses {
             /* This is the prefix we want to consider for Tor circuits */
-            let netAddr = match IpNet::new(address.ip, 16) {
+            let net_addr = match IpNet::new(address.ip, 16) {
                 Ok(addr) => addr,
                 Err(e) => {
                     println!("IPNet Error: {}", e);
                     continue;
                 }
             };
-            if self.hs_subnets.contains(&netAddr.to_string()) {
+            if self.hs_subnets.contains(&net_addr.to_string()) {
                 //println!("Subnet error: {}", netAddr.to_string());
                 return false;
             }
@@ -382,7 +374,7 @@ pub fn build_circuit(
     let mut circ = TorCircuitConstruction::new(cg);
     circ.add_exit_relay(target_port)?;
     circ.add_guard_relay()?;
-    for i in 0..(length - 2) {
+    for _ in 0..(length - 2) {
         circ.add_middle_relay()?;
     }
 
@@ -428,8 +420,8 @@ fn compute_tor_circuit_relays<'a>(
     descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
 ) -> Vec<Rc<TorCircuitRelay>> {
     println!("\tComputing Circuit Relays");
-    let mut missingDescriptors = 0;
-    let mut buildFailed = 0;
+    // let mut missingDescriptors = 0;
+    // let mut buildFailed = 0;
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
@@ -517,8 +509,8 @@ fn compute_tor_circuit_relays<'a>(
         }
         let descriptor = match result {
             Ok(desc) => desc,
-            Error => {
-                missingDescriptors += 1;
+            Err(_) => {
+                // missingDescriptors += 1;
                 continue;
             }
         };
@@ -555,7 +547,7 @@ fn compute_tor_circuit_relays<'a>(
             Ok(circ_relay) => circ_relay,
             Err(err) => {
                 println!("Error: {}", err.to_string());
-                buildFailed += 1;
+                // buildFailed += 1;
                 continue;
             }
         };
@@ -667,8 +659,6 @@ impl<'a> CircuitGenerator {
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
     ) -> Self {
-        const INIT_EXIT_DISTR: Option<RelayDistribution> = None;
-
         let mut family_agreement = mutal_agreement::MutalAgreement::new();
 
         println!("Computing new Circuit Generator");

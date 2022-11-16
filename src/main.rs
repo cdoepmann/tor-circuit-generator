@@ -1,7 +1,6 @@
 use torscaler::parser;
 use torscaler::parser::consensus;
 
-use std::char::MAX;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -75,7 +74,7 @@ fn main() {
     /* Calculate max possible exit bandwidth */
     let mut sum = 0;
     for relay in circuit_generator.relays.into_iter() {
-        let mut weight = 0;
+        let weight;
         let guard = consensus::Flag::Guard;
         let exit = consensus::Flag::Exit;
 
@@ -94,16 +93,16 @@ fn main() {
 
     println!("My expectaion would have been that this is \"kinda\" balanced");
     println!("Exit is already quite under represented. How does this look like for less used, but common ports?");
-    let reference_value = circuit_generator.exit_distr[63535]
-        .as_ref()
-        .unwrap()
-        .bandwidth_sum;
+    // let reference_value = circuit_generator.exit_distr[63535]
+    //     .as_ref()
+    //     .unwrap()
+    //     .bandwidth_sum;
 
     let mut port_bw_map: HashMap<u64, Vec<u16>> = HashMap::new();
     for port in 0..u16::MAX {
         if let Some(distr) = &circuit_generator.exit_distr[port as usize] {
             match port_bw_map.get_mut(&distr.bandwidth_sum) {
-                Some(mut value) => {
+                Some(value) => {
                     value.push(port);
                 }
                 None => {
