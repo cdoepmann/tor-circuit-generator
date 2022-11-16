@@ -1,7 +1,6 @@
 use derive_builder::Builder;
 use ipnet;
 use ipnet::IpNet;
-use mutal_agreement::*;
 use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
@@ -18,6 +17,9 @@ use torscaler::parser::descriptor;
 use torscaler::parser::*;
 // For debugging
 use std::time::Instant;
+
+mod mutual_agreement;
+use mutual_agreement::*;
 
 const BENCH_ENABLED: bool = true;
 pub struct Bench {
@@ -154,7 +156,7 @@ pub struct CircuitGenerator {
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
     pub exit_distr: Vec<Option<RelayDistribution>>,
-    pub family_agreement: MutalAgreement,
+    pub family_agreement: MutualAgreement,
 }
 
 pub struct TorCircuit {
@@ -565,7 +567,7 @@ pub fn prepare_distributions(
     guard_distr: &mut RelayDistribution,
     middle_distr: &mut RelayDistribution,
     exit_distr: &mut Vec<Option<RelayDistribution>>,
-    family_agreement: &mut mutal_agreement::MutalAgreement,
+    family_agreement: &mut mutual_agreement::MutualAgreement,
     consensus_weights: &BTreeMap<String, u64>,
 ) {
     println!("\t Prepare Distributions:");
@@ -659,7 +661,7 @@ impl<'a> CircuitGenerator {
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
     ) -> Self {
-        let mut family_agreement = mutal_agreement::MutalAgreement::new();
+        let mut family_agreement = mutual_agreement::MutualAgreement::new();
 
         println!("Computing new Circuit Generator");
         let mut bench = Bench::new();

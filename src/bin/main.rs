@@ -4,15 +4,14 @@ use torscaler::parser::consensus;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
-pub mod lib;
-use crate::lib::*;
 use std::time::Instant;
+use tor_circuit_generator::*;
 
 fn main() {
     println!("Benchmarking");
-    let asn_db_file_path = "data/GeoLite2-ASN-Blocks-IPv4.csv";
-    let consensus_file_path = "data/test.consensus";
-    let desc_file_path = "data/test.descriptors";
+    let asn_db_file_path = "GeoLite2-ASN-Blocks-IPv4.csv";
+    let consensus_file_path = "/home/christoph/forschung/scalability-vs-anonymity/circuit-simulation/runs/horz-1.5/consensus/consensus";
+    let desc_file_path = "/home/christoph/forschung/scalability-vs-anonymity/circuit-simulation/runs/horz-1.5/descriptors.all";
 
     let now = Instant::now();
     let asn_db = parser::asn::AsnDb::new(asn_db_file_path).unwrap();
@@ -42,8 +41,8 @@ fn main() {
     println!("Start building circuits!");
     let mut bench = Bench::new();
     let mut circs = vec![];
-    for i in 0..100000 {
-        bench.measure("Built 100.000 Circuits", i % 100000 == 0);
+    for i in 0..1000000 {
+        bench.measure("Built 1.000.000 Circuits", i % 100000 == 0);
         match build_circuit(&circuit_generator, 3, 443) {
             Ok(circ) => circs.push(circ),
             Err(err) => {
@@ -52,6 +51,22 @@ fn main() {
         }
     }
     bench.measure("", true);
+
+    println!("Saving to file");
+    let mut bench = Bench::new();
+
+    let mut f = File::create("result.csv").unwrap();
+    for circ in circs {
+        writeln!(
+            &mut f,
+            "{},{},{}",
+            circ.guard.fingerprint,
+            circ.middle.get(0).unwrap().fingerprint,
+            circ.exit.fingerprint
+        )
+        .unwrap();
+    }
+    bench.measure("done writing", true);
 
     /* Sanity Check #1 */
     println!(
