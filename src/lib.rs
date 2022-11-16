@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::process::exit;
 use std::rc::Rc;
 use std::slice::Iter;
@@ -88,6 +88,14 @@ pub struct TorCircuitRelay {
     pub nickname: String,
     pub exit_policies: descriptor::DescriptorExitPolicy,
 }
+
+impl PartialEq for TorCircuitRelay {
+    fn eq(&self, other: &Self) -> bool {
+        self.fingerprint == other.fingerprint
+    }
+}
+
+impl Eq for TorCircuitRelay {}
 
 impl std::error::Error for TorGeneratorError {}
 #[derive(Debug)]
