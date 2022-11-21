@@ -1,7 +1,9 @@
+//! Helper tool to benchmark our crate.
+
 use std::time::Instant;
 
 pub(crate) const BENCH_ENABLED: bool = true;
-pub struct Bench {
+pub(crate) struct Bench {
     timer: std::time::Instant,
     tag: String,
 }
