@@ -6,7 +6,6 @@ use torscaler::parser::DocumentCombiningError;
 use torscaler::parser::Fingerprint;
 use torscaler::parser::{consensus, descriptor};
 
-use crate::bench;
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
 
 pub(crate) fn compute_range_from_port(
@@ -27,18 +26,12 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a consensus::ConsensusDocument,
     descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
 ) -> Vec<Rc<TorCircuitRelay>> {
-    println!("\tComputing Circuit Relays");
     // let mut missingDescriptors = 0;
     // let mut buildFailed = 0;
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
-    let mut bench = bench::Bench::new();
 
-    bench.measure(
-        "\t\t Compute Fingerprint -> Descriptor hashmap",
-        bench::BENCH_ENABLED,
-    );
     let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
         .into_iter()
         .filter(|d| d.digest.is_some())
@@ -51,7 +44,6 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         })
         .collect();
 
-    bench.measure("\t\t Nicknames to fingerprints", bench::BENCH_ENABLED);
     let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
     {
         for relay in consensus.relays.iter() {
@@ -68,8 +60,6 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         }
     }
 
-    bench.measure("\t\t Consensus relays", bench::BENCH_ENABLED);
-    println!("\t\t {} x ", consensus.relays.len());
     let known_fingerprints: HashSet<Fingerprint> = consensus
         .relays
         .iter()
@@ -93,9 +83,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
             None
         }
     };
-    let mut first = true;
     for consensus_relay in consensus.relays.iter() {
-        bench.measure("\t\t\t pre-checks", bench::BENCH_ENABLED && first);
         let result = descriptors.remove(&consensus_relay.digest).ok_or_else(|| {
             DocumentCombiningError::MissingDescriptor {
                 digest: consensus_relay.digest.clone(),
@@ -122,11 +110,9 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
                 continue;
             }
         };
-        bench.measure("\t\t\t Init struct", bench::BENCH_ENABLED && first);
         let mut circuit_relay = TorCircuitRelayBuilder::default();
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
-        bench.measure("\t\t\t Construct family", bench::BENCH_ENABLED && first);
         match descriptor.family_members {
             None => {
                 continue;
@@ -141,7 +127,6 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
                 );
             }
         };
-        bench.measure("\t\t\t building", bench::BENCH_ENABLED && first);
         circuit_relay.nickname(descriptor.nickname.unwrap());
         let mut flags = vec![];
         for flag in consensus_relay.flags.iter() {
@@ -161,9 +146,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         };
 
         relays.push(Rc::new(relay));
-        bench.measure("", bench::BENCH_ENABLED);
-        first = false;
     }
-    //println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
+
     relays
 }

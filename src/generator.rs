@@ -8,7 +8,6 @@ use rand_distr::WeightedAliasIndex;
 
 use torscaler::parser::consensus;
 
-use crate::bench;
 use crate::containers::{TorCircuit, TorCircuitRelay};
 use crate::distribution::{prepare_distributions, RelayDistribution};
 use crate::error::TorGeneratorError;
@@ -201,11 +200,7 @@ impl<'a> CircuitGenerator {
     ) -> Self {
         let mut family_agreement = MutualAgreement::new();
 
-        println!("Computing new Circuit Generator");
-        let mut bench = bench::Bench::new();
-        bench.measure("\t Compute tor circuit relays", bench::BENCH_ENABLED);
         let relays = compute_tor_circuit_relays(consensus, descriptors);
-        bench.measure("\t Init distributions", bench::BENCH_ENABLED);
         let mut guard_distr: RelayDistribution = RelayDistribution::default();
         let mut middle_distr: RelayDistribution = RelayDistribution::default();
         let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
@@ -213,7 +208,6 @@ impl<'a> CircuitGenerator {
             // the first item will remain unused as we index by port (1-based)
             exit_distr.push(None);
         }
-        bench.measure("\t Prepare distributions", bench::BENCH_ENABLED);
         prepare_distributions(
             &relays,
             &mut guard_distr,
@@ -222,13 +216,8 @@ impl<'a> CircuitGenerator {
             &mut family_agreement,
             &consensus.weights,
         );
-        bench.measure(
-            "\t Compute distributions Guard/Middle",
-            bench::BENCH_ENABLED,
-        );
         guard_distr.distr = WeightedAliasIndex::new(guard_distr.weights.clone()).unwrap();
         middle_distr.distr = WeightedAliasIndex::new(middle_distr.weights.clone()).unwrap();
-        bench.measure("\t Compute distributions Exit", bench::BENCH_ENABLED);
         for port_distr in exit_distr.iter_mut() {
             if let Some(distr) = port_distr {
                 distr.distr = WeightedAliasIndex::new(distr.weights.clone()).unwrap();

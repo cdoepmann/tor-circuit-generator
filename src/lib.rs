@@ -1,7 +1,5 @@
 mod mutual_agreement;
 
-mod bench;
-
 mod error;
 pub use error::TorGeneratorError;
 

@@ -6,7 +6,6 @@ use rand_distr::WeightedAliasIndex;
 use torscaler::parser::consensus::Flag;
 use torscaler::parser::descriptor;
 
-use crate::bench;
 use crate::containers::{Position, RelayType, TorCircuitRelay};
 use crate::input::compute_range_from_port;
 use crate::mutual_agreement;
@@ -69,24 +68,14 @@ pub fn prepare_distributions(
     family_agreement: &mut mutual_agreement::MutualAgreement,
     consensus_weights: &BTreeMap<String, u64>,
 ) {
-    println!("\t Prepare Distributions:");
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
-    println!("\t {} x ", relays.len());
-    let mut first = true;
-    let mut bench = bench::Bench::new();
     for relay in relays.iter() {
-        bench.measure("\t\t Determine Relay type", bench::BENCH_ENABLED && first);
         let relay_type = RelayType::from_relay(&relay);
         let relay_fingerprint_str = format!("{}", relay.fingerprint);
-        bench.measure("\t\t Fingerprint", bench::BENCH_ENABLED && first);
         for family_fingerprint in &relay.family {
             let family_fingerprint_str = format!("{}", family_fingerprint);
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
-        bench.measure(
-            "\t\t Position Exit Calculations",
-            bench::BENCH_ENABLED && first,
-        );
         let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize + 1]);
 
         for policy in &relay.exit_policies.rules {
@@ -114,7 +103,6 @@ pub fn prepare_distributions(
                 distr.bandwidth_sum += exit_weight;
             }
         }
-        bench.measure("\t\t Position Guard/Middle", bench::BENCH_ENABLED && first);
         if relay.flags.contains(&Flag::Guard) {
             let guard_weight =
                 relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
@@ -127,7 +115,5 @@ pub fn prepare_distributions(
         middle_distr.relays.push(Rc::clone(relay));
         middle_distr.weights.push(middle_weight);
         middle_distr.bandwidth_sum += middle_weight;
-        bench.measure("", bench::BENCH_ENABLED && first);
-        first = false;
     }
 }
