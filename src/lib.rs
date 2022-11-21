@@ -1,64 +1,23 @@
+use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet};
+use std::fmt;
+use std::rc::Rc;
+
 use derive_builder::Builder;
-use ipnet;
 use ipnet::IpNet;
 use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
-use std::collections::hash_map::Entry;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::fmt;
-use std::rc::Rc;
-use std::vec;
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
+
 use torscaler::parser::descriptor;
-use torscaler::parser::*;
-// For debugging
-use std::time::Instant;
+use torscaler::parser::{consensus, DocumentCombiningError, Fingerprint};
+// use torscaler::parser::*;
 
 mod mutual_agreement;
 use mutual_agreement::*;
 
-const BENCH_ENABLED: bool = true;
-pub struct Bench {
-    timer: std::time::Instant,
-    tag: String,
-}
-impl Bench {
-    pub fn measure(&mut self, tag: &str, condition: bool) {
-        if !condition {
-            return;
-        }
-        let elapsed = self.timer.elapsed();
-        if self.tag != "" {
-            println!("{}: {:.2?}", self.tag, elapsed);
-        }
-        self.tag = String::from(tag);
-        self.timer = Instant::now();
-    }
-
-    pub fn reset(&mut self) {
-        self.timer = Instant::now();
-        self.tag = String::from("");
-    }
-
-    pub fn new() -> Self {
-        Bench {
-            timer: Instant::now(),
-            tag: String::from(""),
-        }
-    }
-}
-impl Drop for Bench {
-    fn drop(&mut self) {
-        let elapsed = self.timer.elapsed();
-        if self.tag != "" {
-            println!("{}: {:.2?}", self.tag, elapsed);
-        }
-    }
-}
+mod bench;
 
 /*For example Exit:
  *                                                          weg * sum(bandwidth_Guard_flagged_relays)
@@ -427,11 +386,11 @@ fn compute_tor_circuit_relays<'a>(
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
-    let mut bench = Bench::new();
+    let mut bench = bench::Bench::new();
 
     bench.measure(
         "\t\t Compute Fingerprint -> Descriptor hashmap",
-        BENCH_ENABLED,
+        bench::BENCH_ENABLED,
     );
     let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
         .into_iter()
@@ -445,7 +404,7 @@ fn compute_tor_circuit_relays<'a>(
         })
         .collect();
 
-    bench.measure("\t\t Nicknames to fingerprints", BENCH_ENABLED);
+    bench.measure("\t\t Nicknames to fingerprints", bench::BENCH_ENABLED);
     let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
     {
         for relay in consensus.relays.iter() {
@@ -462,7 +421,7 @@ fn compute_tor_circuit_relays<'a>(
         }
     }
 
-    bench.measure("\t\t Consensus relays", BENCH_ENABLED);
+    bench.measure("\t\t Consensus relays", bench::BENCH_ENABLED);
     println!("\t\t {} x ", consensus.relays.len());
     let known_fingerprints: HashSet<Fingerprint> = consensus
         .relays
@@ -489,7 +448,7 @@ fn compute_tor_circuit_relays<'a>(
     };
     let mut first = true;
     for consensus_relay in consensus.relays.iter() {
-        bench.measure("\t\t\t pre-checks", BENCH_ENABLED && first);
+        bench.measure("\t\t\t pre-checks", bench::BENCH_ENABLED && first);
         let result = descriptors.remove(&consensus_relay.digest).ok_or_else(|| {
             DocumentCombiningError::MissingDescriptor {
                 digest: consensus_relay.digest.clone(),
@@ -516,11 +475,11 @@ fn compute_tor_circuit_relays<'a>(
                 continue;
             }
         };
-        bench.measure("\t\t\t Init struct", BENCH_ENABLED && first);
+        bench.measure("\t\t\t Init struct", bench::BENCH_ENABLED && first);
         let mut circuit_relay = TorCircuitRelayBuilder::default();
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
-        bench.measure("\t\t\t Construct family", BENCH_ENABLED && first);
+        bench.measure("\t\t\t Construct family", bench::BENCH_ENABLED && first);
         match descriptor.family_members {
             None => {
                 continue;
@@ -535,7 +494,7 @@ fn compute_tor_circuit_relays<'a>(
                 );
             }
         };
-        bench.measure("\t\t\t building", BENCH_ENABLED && first);
+        bench.measure("\t\t\t building", bench::BENCH_ENABLED && first);
         circuit_relay.nickname = descriptor.nickname;
         let mut flags = vec![];
         for flag in consensus_relay.flags.iter() {
@@ -555,7 +514,7 @@ fn compute_tor_circuit_relays<'a>(
         };
 
         relays.push(Rc::new(relay));
-        bench.measure("", BENCH_ENABLED);
+        bench.measure("", bench::BENCH_ENABLED);
         first = false;
     }
     //println!("Error summary:\n bandwidth 0: {},\n not running: {},\n missing Descriptors: {}\n build failed: {}\n", dropped_bandwidth_0, droppped_not_running, missingDescriptors, buildFailed);
@@ -574,17 +533,20 @@ pub fn prepare_distributions(
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
     println!("\t {} x ", relays.len());
     let mut first = true;
-    let mut bench = Bench::new();
+    let mut bench = bench::Bench::new();
     for relay in relays.iter() {
-        bench.measure("\t\t Determine Relay type", BENCH_ENABLED && first);
+        bench.measure("\t\t Determine Relay type", bench::BENCH_ENABLED && first);
         let relay_type = determine_relay_type(&relay);
         let relay_fingerprint_str = format!("{}", relay.fingerprint);
-        bench.measure("\t\t Fingerprint", BENCH_ENABLED && first);
+        bench.measure("\t\t Fingerprint", bench::BENCH_ENABLED && first);
         for family_fingerprint in &relay.family {
             let family_fingerprint_str = format!("{}", family_fingerprint);
             family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
         }
-        bench.measure("\t\t Position Exit Calculations", BENCH_ENABLED && first);
+        bench.measure(
+            "\t\t Position Exit Calculations",
+            bench::BENCH_ENABLED && first,
+        );
         let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize + 1]);
 
         for policy in &relay.exit_policies.rules {
@@ -612,7 +574,7 @@ pub fn prepare_distributions(
                 distr.bandwidth_sum += exit_weight;
             }
         }
-        bench.measure("\t\t Position Guard/Middle", BENCH_ENABLED && first);
+        bench.measure("\t\t Position Guard/Middle", bench::BENCH_ENABLED && first);
         if relay.flags.contains(&consensus::Flag::Guard) {
             let guard_weight =
                 relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
@@ -625,7 +587,7 @@ pub fn prepare_distributions(
         middle_distr.relays.push(Rc::clone(relay));
         middle_distr.weights.push(middle_weight);
         middle_distr.bandwidth_sum += middle_weight;
-        bench.measure("", BENCH_ENABLED && first);
+        bench.measure("", bench::BENCH_ENABLED && first);
         first = false;
     }
 }
@@ -664,10 +626,10 @@ impl<'a> CircuitGenerator {
         let mut family_agreement = mutual_agreement::MutualAgreement::new();
 
         println!("Computing new Circuit Generator");
-        let mut bench = Bench::new();
-        bench.measure("\t Compute tor circuit relays", BENCH_ENABLED);
+        let mut bench = bench::Bench::new();
+        bench.measure("\t Compute tor circuit relays", bench::BENCH_ENABLED);
         let relays = compute_tor_circuit_relays(consensus, descriptors);
-        bench.measure("\t Init distributions", BENCH_ENABLED);
+        bench.measure("\t Init distributions", bench::BENCH_ENABLED);
         let mut guard_distr: RelayDistribution = RelayDistribution::default();
         let mut middle_distr: RelayDistribution = RelayDistribution::default();
         let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
@@ -675,7 +637,7 @@ impl<'a> CircuitGenerator {
             // the first item will remain unused as we index by port (1-based)
             exit_distr.push(None);
         }
-        bench.measure("\t Prepare distributions", BENCH_ENABLED);
+        bench.measure("\t Prepare distributions", bench::BENCH_ENABLED);
         prepare_distributions(
             &relays,
             &mut guard_distr,
@@ -684,10 +646,13 @@ impl<'a> CircuitGenerator {
             &mut family_agreement,
             &consensus.weights,
         );
-        bench.measure("\t Compute distributions Guard/Middle", BENCH_ENABLED);
+        bench.measure(
+            "\t Compute distributions Guard/Middle",
+            bench::BENCH_ENABLED,
+        );
         guard_distr.distr = WeightedAliasIndex::new(guard_distr.weights.clone()).unwrap();
         middle_distr.distr = WeightedAliasIndex::new(middle_distr.weights.clone()).unwrap();
-        bench.measure("\t Compute distributions Exit", BENCH_ENABLED);
+        bench.measure("\t Compute distributions Exit", bench::BENCH_ENABLED);
         for port_distr in exit_distr.iter_mut() {
             if let Some(distr) = port_distr {
                 distr.distr = WeightedAliasIndex::new(distr.weights.clone()).unwrap();

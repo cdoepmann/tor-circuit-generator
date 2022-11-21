@@ -39,10 +39,10 @@ fn main() {
     let elapsed = now.elapsed();
     println!("Preprocessing Cuircuit building: {:.2?}", elapsed);
     println!("Start building circuits!");
-    let mut bench = Bench::new();
+    // let mut bench = Bench::new();
     let mut circs = vec![];
-    for i in 0..1000000 {
-        bench.measure("Built 1.000.000 Circuits", i % 100000 == 0);
+    for _i in 0..1000000 {
+        // bench.measure("Built 1.000.000 Circuits", i % 100000 == 0);
         match build_circuit(&circuit_generator, 3, 443) {
             Ok(circ) => circs.push(circ),
             Err(err) => {
@@ -50,10 +50,10 @@ fn main() {
             }
         }
     }
-    bench.measure("", true);
+    // bench.measure("", true);
 
     println!("Saving to file");
-    let mut bench = Bench::new();
+    // let mut bench = Bench::new();
 
     let mut f = File::create("result.csv").unwrap();
     for circ in circs {
@@ -66,7 +66,7 @@ fn main() {
         )
         .unwrap();
     }
-    bench.measure("done writing", true);
+    // bench.measure("done writing", true);
 
     /* Sanity Check #1 */
     println!(
