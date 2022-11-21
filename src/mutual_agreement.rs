@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Possibility<T> {
-    No,
+    // No,
     Maybe(T),
     Yes,
 }
