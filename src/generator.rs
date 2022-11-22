@@ -152,28 +152,6 @@ impl<'a> TorCircuitConstruction<'a> {
     }
 }
 
-pub fn build_circuit(
-    cg: &CircuitGenerator,
-    length: u8,
-    target_port: u16,
-) -> Result<TorCircuit, Box<dyn std::error::Error>> {
-    let mut circ = TorCircuitConstruction::new(cg);
-    circ.add_exit_relay(target_port)?;
-    circ.add_guard_relay()?;
-    for _ in 0..(length - 2) {
-        circ.add_middle_relay()?;
-    }
-
-    // Move into circ.build_circuit() -> TorCircuit
-    Ok(TorCircuit {
-        guard: circ.guard.ok_or(TorGeneratorError::UnableToSelectGuard)?,
-        middle: circ.middle,
-        exit: circ
-            .exit
-            .ok_or(TorGeneratorError::UnableToSelectExit(target_port))?,
-    })
-}
-
 pub struct CircuitGenerator {
     pub relays: Vec<Rc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
@@ -183,6 +161,9 @@ pub struct CircuitGenerator {
 }
 
 impl<'a> CircuitGenerator {
+    /// Construct a new circuit generator from Tor documents.
+    ///
+    /// This does the heavy lifting, building the distribution indices etc.
     pub fn new(
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
@@ -200,5 +181,28 @@ impl<'a> CircuitGenerator {
             middle_distr,
             family_agreement,
         }
+    }
+
+    /// Generate a single new circuit.
+    pub fn build_circuit(
+        &self,
+        length: u8,
+        target_port: u16,
+    ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
+        let mut circ = TorCircuitConstruction::new(self);
+        circ.add_exit_relay(target_port)?;
+        circ.add_guard_relay()?;
+        for _ in 0..(length - 2) {
+            circ.add_middle_relay()?;
+        }
+
+        // Move into circ.build_circuit() -> TorCircuit
+        Ok(TorCircuit {
+            guard: circ.guard.ok_or(TorGeneratorError::UnableToSelectGuard)?,
+            middle: circ.middle,
+            exit: circ
+                .exit
+                .ok_or(TorGeneratorError::UnableToSelectExit(target_port))?,
+        })
     }
 }

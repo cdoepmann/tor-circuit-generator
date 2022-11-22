@@ -10,4 +10,4 @@ mod distribution;
 mod input;
 
 mod generator;
-pub use generator::{build_circuit, CircuitGenerator};
+pub use generator::CircuitGenerator;

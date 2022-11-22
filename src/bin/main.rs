@@ -43,7 +43,7 @@ fn main() {
     let mut circs = vec![];
     for _i in 0..1000000 {
         // bench.measure("Built 1.000.000 Circuits", i % 100000 == 0);
-        match build_circuit(&circuit_generator, 3, 443) {
+        match circuit_generator.build_circuit(3, 443) {
             Ok(circ) => circs.push(circ),
             Err(err) => {
                 println!("{}", err);
