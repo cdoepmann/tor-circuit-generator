@@ -2,16 +2,13 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use ipnet::IpNet;
-use rand::prelude::*;
-use rand_distr::Distribution;
-use rand_distr::WeightedAliasIndex;
 
 use torscaler::parser::consensus;
 
 use crate::containers::{TorCircuit, TorCircuitRelay};
-use crate::distribution::{prepare_distributions, RelayDistribution};
+use crate::distribution::{get_distributions, RelayDistribution};
 use crate::error::TorGeneratorError;
-use crate::input::compute_tor_circuit_relays;
+use crate::input::{compute_families, compute_tor_circuit_relays};
 use crate::mutual_agreement::MutualAgreement;
 
 const MAX_SAMPLE_TRYS: u32 = 1000;
@@ -96,26 +93,18 @@ impl<'a> TorCircuitConstruction<'a> {
             guess if have to ensure this by checking and resampling if necessary,
             due to the two layered sample approach, adjusting the distributions is not possible
         */
-        match &self.cg.exit_distr[target_port as usize] {
-            Some(distr) => {
-                let mut rng = thread_rng();
-                let relay_idx = distr.distr.sample(&mut rng);
-                Ok(Rc::clone(&distr.relays[relay_idx]))
-            }
+        match &self.cg.exit_distrs[target_port as usize] {
+            Some(distr) => Ok(distr.sample()),
             None => Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port))),
         }
     }
 
     pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay> {
-        let mut rng = thread_rng();
-        let relay_idx = self.cg.guard_distr.distr.sample(&mut rng);
-        Rc::clone(&self.cg.guard_distr.relays[relay_idx])
+        self.cg.guard_distr.sample()
     }
 
     pub fn sample_middle_relay(&self) -> Rc<TorCircuitRelay> {
-        let mut rng = thread_rng();
-        let relay_idx = self.cg.middle_distr.distr.sample(&mut rng);
-        Rc::clone(&self.cg.middle_distr.relays[relay_idx])
+        self.cg.middle_distr.sample()
     }
     pub fn update_requirements(&mut self, relay: &Rc<TorCircuitRelay>) {
         for address in &relay.or_addresses {
@@ -189,7 +178,7 @@ pub struct CircuitGenerator {
     pub relays: Vec<Rc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
-    pub exit_distr: Vec<Option<RelayDistribution>>,
+    pub exit_distrs: Vec<Option<RelayDistribution>>,
     pub family_agreement: MutualAgreement,
 }
 
@@ -198,34 +187,15 @@ impl<'a> CircuitGenerator {
         consensus: &'a consensus::ConsensusDocument,
         descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
     ) -> Self {
-        let mut family_agreement = MutualAgreement::new();
-
         let relays = compute_tor_circuit_relays(consensus, descriptors);
-        let mut guard_distr: RelayDistribution = RelayDistribution::default();
-        let mut middle_distr: RelayDistribution = RelayDistribution::default();
-        let mut exit_distr: Vec<Option<RelayDistribution>> = vec![];
-        for _port in 0..=u16::MAX {
-            // the first item will remain unused as we index by port (1-based)
-            exit_distr.push(None);
-        }
-        prepare_distributions(
-            &relays,
-            &mut guard_distr,
-            &mut middle_distr,
-            &mut exit_distr,
-            &mut family_agreement,
-            &consensus.weights,
-        );
-        guard_distr.distr = WeightedAliasIndex::new(guard_distr.weights.clone()).unwrap();
-        middle_distr.distr = WeightedAliasIndex::new(middle_distr.weights.clone()).unwrap();
-        for port_distr in exit_distr.iter_mut() {
-            if let Some(distr) = port_distr {
-                distr.distr = WeightedAliasIndex::new(distr.weights.clone()).unwrap();
-            }
-        }
+        let family_agreement = compute_families(&relays);
+
+        let (guard_distr, middle_distr, exit_distrs) =
+            get_distributions(&relays, &consensus.weights);
+
         CircuitGenerator {
             relays,
-            exit_distr,
+            exit_distrs,
             guard_distr,
             middle_distr,
             family_agreement,

@@ -79,7 +79,7 @@ fn main() {
     );
     println!(
         "Exit (443) weight:\t{}",
-        circuit_generator.exit_distr[443]
+        circuit_generator.exit_distrs[443]
             .as_ref()
             .unwrap()
             .bandwidth_sum
@@ -115,7 +115,7 @@ fn main() {
 
     let mut port_bw_map: HashMap<u64, Vec<u16>> = HashMap::new();
     for port in 0..u16::MAX {
-        if let Some(distr) = &circuit_generator.exit_distr[port as usize] {
+        if let Some(distr) = &circuit_generator.exit_distrs[port as usize] {
             match port_bw_map.get_mut(&distr.bandwidth_sum) {
                 Some(value) => {
                     value.push(port);

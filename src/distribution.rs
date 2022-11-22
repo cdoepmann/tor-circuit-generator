@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use rand::prelude::*;
+use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
 use torscaler::parser::consensus::Flag;
@@ -8,7 +10,6 @@ use torscaler::parser::descriptor;
 
 use crate::containers::{Position, RelayType, TorCircuitRelay};
 use crate::input::compute_range_from_port;
-use crate::mutual_agreement;
 
 /// A weighted distribution for fast, weighted sampling from relays.
 ///
@@ -16,20 +17,51 @@ use crate::mutual_agreement;
 /// Exit, Guard, Exit+Guard and NotFlagged.
 pub struct RelayDistribution {
     pub bandwidth_sum: u64,
-    pub weights: Vec<u64>,
-    pub distr: WeightedAliasIndex<u64>,
-    pub relays: Vec<Rc<TorCircuitRelay>>,
+    // weights: Vec<u64>,
+    distr: WeightedAliasIndex<u64>,
+    relays: Vec<Rc<TorCircuitRelay>>,
 }
 
-impl<'a> Default for RelayDistribution {
-    /// Construct an empty distribution
-    fn default() -> RelayDistribution {
+impl RelayDistribution {
+    /// Samples a relay from the distribution, returning it as an `Rc`.
+    pub(crate) fn sample(&self) -> Rc<TorCircuitRelay> {
+        let mut rng = thread_rng();
+        let relay_idx = self.distr.sample(&mut rng);
+        Rc::clone(&self.relays[relay_idx])
+    }
+}
+
+impl From<RelayDistributionCollector> for RelayDistribution {
+    fn from(x: RelayDistributionCollector) -> Self {
         RelayDistribution {
-            bandwidth_sum: 0,
-            weights: vec![],
-            distr: WeightedAliasIndex::new(vec![1]).unwrap(),
-            relays: vec![],
+            distr: WeightedAliasIndex::new(x.weights.clone()).unwrap(),
+            relays: x.relays,
+            // weights: x.weights,
+            bandwidth_sum: x.bandwidth_sum,
         }
+    }
+}
+
+/// A possibly unfinished version of a `RelayDistribution`
+struct RelayDistributionCollector {
+    bandwidth_sum: u64,
+    weights: Vec<u64>,
+    relays: Vec<Rc<TorCircuitRelay>>,
+}
+
+impl RelayDistributionCollector {
+    fn new() -> Self {
+        RelayDistributionCollector {
+            bandwidth_sum: 0,
+            weights: Vec::new(),
+            relays: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, relay: &Rc<TorCircuitRelay>, weight: u64) {
+        self.relays.push(Rc::clone(relay));
+        self.weights.push(weight);
+        self.bandwidth_sum += weight;
     }
 }
 
@@ -60,22 +92,33 @@ fn positional_weight(
     }
 }
 
-pub fn prepare_distributions(
+/// Derive the relay distributions per relay type from a provided list of
+/// `TorCircuitRelay`
+///
+/// This returns a tuple containing three distributions: (guard, middle, exit).
+/// Note that the exit "distribution" is in fact a `Vec` of distributions,
+/// one for each exit port.
+pub fn get_distributions(
     relays: &Vec<Rc<TorCircuitRelay>>,
-    guard_distr: &mut RelayDistribution,
-    middle_distr: &mut RelayDistribution,
-    exit_distr: &mut Vec<Option<RelayDistribution>>,
-    family_agreement: &mut mutual_agreement::MutualAgreement,
     consensus_weights: &BTreeMap<String, u64>,
+) -> (
+    RelayDistribution,
+    RelayDistribution,
+    Vec<Option<RelayDistribution>>,
 ) {
+    let mut guard_distr = RelayDistributionCollector::new();
+    let mut middle_distr = RelayDistributionCollector::new();
+
+    let mut exit_distrs: Vec<_> = (0..=u16::MAX).into_iter().map(|_| None).collect();
+
     const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
     for relay in relays.iter() {
-        let relay_type = RelayType::from_relay(&relay);
-        let relay_fingerprint_str = format!("{}", relay.fingerprint);
-        for family_fingerprint in &relay.family {
-            let family_fingerprint_str = format!("{}", family_fingerprint);
-            family_agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
-        }
+        let relay_type = RelayType::from_relay(relay);
+        let weight =
+            |pos: Position| relay.bandwidth * positional_weight(pos, relay_type, consensus_weights);
+
+        // handle exit distributions
+
         let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize + 1]);
 
         for policy in &relay.exit_policies.rules {
@@ -92,28 +135,31 @@ pub fn prepare_distributions(
 
         for port in 1..port_array.len() {
             if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
-                let exit_weight = relay.bandwidth
-                    * positional_weight(Position::Exit, relay_type, consensus_weights);
-                if let None = exit_distr[port] {
-                    exit_distr[port] = Some(RelayDistribution::default());
-                }
-                let distr = exit_distr[port].as_mut().unwrap();
-                distr.relays.push(Rc::clone(relay));
-                distr.weights.push(exit_weight);
-                distr.bandwidth_sum += exit_weight;
+                exit_distrs[port]
+                    .get_or_insert_with(RelayDistributionCollector::new)
+                    .push(relay, weight(Position::Exit));
             }
         }
+
+        // Handle guard distribution
         if relay.flags.contains(&Flag::Guard) {
-            let guard_weight =
-                relay.bandwidth * positional_weight(Position::Guard, relay_type, consensus_weights);
-            guard_distr.relays.push(Rc::clone(relay));
-            guard_distr.weights.push(guard_weight);
-            guard_distr.bandwidth_sum += guard_weight;
+            guard_distr.push(relay, weight(Position::Guard));
         }
-        let middle_weight =
-            relay.bandwidth * positional_weight(Position::Middle, relay_type, consensus_weights);
-        middle_distr.relays.push(Rc::clone(relay));
-        middle_distr.weights.push(middle_weight);
-        middle_distr.bandwidth_sum += middle_weight;
+
+        // Handle middle distribution
+        middle_distr.push(relay, weight(Position::Middle));
     }
+
+    (
+        // Guard
+        guard_distr.into(),
+        // Middle
+        middle_distr.into(),
+        // Exit
+        exit_distrs
+            .into_iter()
+            // finalize to RelayDistribution objects
+            .map(|o| o.map(|c| c.into()))
+            .collect(),
+    )
 }

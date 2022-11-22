@@ -7,6 +7,7 @@ use torscaler::parser::Fingerprint;
 use torscaler::parser::{consensus, descriptor};
 
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
+use crate::mutual_agreement::MutualAgreement;
 
 pub(crate) fn compute_range_from_port(
     port: &descriptor::ExitPolicyPort,
@@ -149,4 +150,19 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
     }
 
     relays
+}
+
+/// Compute the symmetric subset of the family relation.
+pub(crate) fn compute_families(relays: &Vec<Rc<TorCircuitRelay>>) -> MutualAgreement {
+    let mut agreement = MutualAgreement::new();
+
+    for relay in relays {
+        let relay_fingerprint_str = format!("{}", relay.fingerprint);
+        for family_fingerprint in &relay.family {
+            let family_fingerprint_str = format!("{}", family_fingerprint);
+            agreement.agree(&relay_fingerprint_str, &family_fingerprint_str);
+        }
+    }
+
+    agreement
 }
