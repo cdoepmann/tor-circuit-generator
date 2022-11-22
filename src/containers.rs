@@ -9,8 +9,9 @@ use ipnet::IpNet;
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-use torscaler::parser::Fingerprint;
-use torscaler::parser::{consensus, descriptor};
+use tordoc::{
+    consensus::Flag, descriptor::DescriptorExitPolicy, descriptor::OrAddress, Fingerprint,
+};
 
 /// A pair of IP network mask with exit port.
 #[derive(Debug, Clone)]
@@ -22,14 +23,14 @@ pub struct OrAddressNet {
 /// A Tor relay, reduced to the properties needed for circuit selection.
 #[derive(Debug, Builder, Clone)]
 pub struct TorCircuitRelay {
-    pub fingerprint: torscaler::parser::meta::Fingerprint,
+    pub fingerprint: Fingerprint,
     pub family: Vec<Fingerprint>,
-    pub or_addresses: Vec<torscaler::parser::descriptor::OrAddress>,
+    pub or_addresses: Vec<OrAddress>,
     pub bandwidth: u64,
-    pub flags: Vec<consensus::Flag>,
+    pub flags: Vec<Flag>,
     /* For easier debugging */
     pub nickname: String,
-    pub exit_policies: descriptor::DescriptorExitPolicy,
+    pub exit_policies: DescriptorExitPolicy,
 }
 
 impl PartialEq for TorCircuitRelay {
@@ -52,8 +53,8 @@ pub(crate) enum RelayType {
 impl RelayType {
     pub(crate) fn from_relay(relay: &TorCircuitRelay) -> Self {
         /* There are more performant orders, but this is readable and I rather leave the optimization to the compiler */
-        let guard = consensus::Flag::Guard;
-        let exit = consensus::Flag::Exit;
+        let guard = Flag::Guard;
+        let exit = Flag::Exit;
         if relay.flags.contains(&guard) && relay.flags.contains(&exit) {
             return RelayType::GuardAndExit;
         } else if relay.flags.contains(&exit) {

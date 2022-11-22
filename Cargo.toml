@@ -11,6 +11,6 @@ rand = "0.8"
 rand_distr = "0.4"
 strum = "0.23"
 strum_macros = "0.23"
-torscaler = {path = "../torscaler"}
+tordoc = {path = "../tordoc"}
 ipnet = "2.5.0"
 derive_builder = "0.10.2"

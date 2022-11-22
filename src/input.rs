@@ -2,30 +2,29 @@ use std::collections::hash_map::{Entry, HashMap};
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use torscaler::parser::DocumentCombiningError;
-use torscaler::parser::Fingerprint;
-use torscaler::parser::{consensus, descriptor};
+use tordoc::{
+    consensus::Flag, descriptor::ExitPolicyPort, descriptor::ExitPortRange,
+    descriptor::FamilyMember, error::DocumentCombiningError, Consensus, Descriptor, Fingerprint,
+};
 
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
 use crate::mutual_agreement::MutualAgreement;
 
-pub(crate) fn compute_range_from_port(
-    port: &descriptor::ExitPolicyPort,
-) -> impl IntoIterator<Item = usize> {
+pub(crate) fn compute_range_from_port(port: &ExitPolicyPort) -> impl IntoIterator<Item = usize> {
     match port {
-        descriptor::ExitPolicyPort::Wildcard => {
+        ExitPolicyPort::Wildcard => {
             return 1..=u16::MAX.into();
         }
-        descriptor::ExitPolicyPort::Port(value) => match value {
-            descriptor::Range::Single(v) => return *v as usize..=*v as usize,
-            descriptor::Range::Interval(v1, v2) => return *v1 as usize..=*v2 as usize,
+        ExitPolicyPort::Port(value) => match value {
+            ExitPortRange::Single(v) => return *v as usize..=*v as usize,
+            ExitPortRange::Interval(v1, v2) => return *v1 as usize..=*v2 as usize,
         },
     }
 }
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
-    consensus: &'a consensus::ConsensusDocument,
-    descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
+    consensus: &'a Consensus,
+    descriptors: Vec<Descriptor>,
 ) -> Vec<Rc<TorCircuitRelay>> {
     // let mut missingDescriptors = 0;
     // let mut buildFailed = 0;
@@ -33,16 +32,9 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
 
-    let mut descriptors: HashMap<Fingerprint, descriptor::Descriptor> = descriptors
+    let mut descriptors: HashMap<Fingerprint, Descriptor> = descriptors
         .into_iter()
-        .filter(|d| d.digest.is_some())
-        .map(|d| {
-            (
-                d.digest.clone().unwrap(),
-                //.ok_or(DocumentCombiningError::DescriptorMissesDigest)?,
-                d,
-            )
-        })
+        .map(|d| (d.digest.clone(), d))
         .collect();
 
     let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
@@ -67,15 +59,15 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         .map(|r| r.fingerprint.clone())
         .collect();
 
-    let filter_family_member = |f: descriptor::FamilyMember| match f {
-        descriptor::FamilyMember::Fingerprint(fingerprint) => {
+    let filter_family_member = |f: FamilyMember| match f {
+        FamilyMember::Fingerprint(fingerprint) => {
             if known_fingerprints.contains(&fingerprint) {
                 Some(fingerprint)
             } else {
                 None
             }
         }
-        descriptor::FamilyMember::Nickname(nickname) => {
+        FamilyMember::Nickname(nickname) => {
             if let Some(entry) = nicknames_to_fingerprints.get(&nickname) {
                 if let Some(fingerprint) = entry {
                     return Some(fingerprint.clone());
@@ -99,7 +91,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
             continue;
         }
 
-        let flag_running = consensus::Flag::Running;
+        let flag_running = Flag::Running;
         if !consensus_relay.flags.contains(&flag_running) {
             droppped_not_running = droppped_not_running + 1;
             continue;
@@ -114,28 +106,22 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         let mut circuit_relay = TorCircuitRelayBuilder::default();
         circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
         circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
-        match descriptor.family_members {
-            None => {
-                continue;
-            }
-            Some(family) => {
-                circuit_relay.family(
-                    family
-                        .into_iter()
-                        // keep only family members that do exist, and convert them to fingerprints
-                        .filter_map(filter_family_member)
-                        .collect(),
-                );
-            }
-        };
-        circuit_relay.nickname(descriptor.nickname.unwrap());
+        circuit_relay.family(
+            descriptor
+                .family_members
+                .into_iter()
+                // keep only family members that do exist, and convert them to fingerprints
+                .filter_map(filter_family_member)
+                .collect(),
+        );
+        circuit_relay.nickname(descriptor.nickname);
         let mut flags = vec![];
         for flag in consensus_relay.flags.iter() {
             flags.push(flag.clone());
         }
         circuit_relay.flags(flags);
-        circuit_relay.or_addresses(descriptor.or_addresses.unwrap());
-        circuit_relay.exit_policies(descriptor.exit_policy.unwrap());
+        circuit_relay.or_addresses(descriptor.or_addresses);
+        circuit_relay.exit_policies(descriptor.exit_policy);
 
         let relay = match circuit_relay.build() {
             Ok(circ_relay) => circ_relay,

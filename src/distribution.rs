@@ -5,8 +5,8 @@ use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
-use torscaler::parser::consensus::Flag;
-use torscaler::parser::descriptor;
+use tordoc::consensus::Flag;
+use tordoc::descriptor::{ExitPolicyAddress, ExitPolicyType};
 
 use crate::containers::{Position, RelayType, TorCircuitRelay};
 use crate::input::compute_range_from_port;
@@ -111,7 +111,7 @@ pub fn get_distributions(
 
     let mut exit_distrs: Vec<_> = (0..=u16::MAX).into_iter().map(|_| None).collect();
 
-    const INIT_PORT_ARRAY: Option<descriptor::ExitPolicyType> = None;
+    const INIT_PORT_ARRAY: Option<ExitPolicyType> = None;
     for relay in relays.iter() {
         let relay_type = RelayType::from_relay(relay);
         let weight =
@@ -123,7 +123,7 @@ pub fn get_distributions(
 
         for policy in &relay.exit_policies.rules {
             /* We only consider rules that apply to ALL IP addresses. */
-            if policy.address != descriptor::ExitPolicyAddress::Wildcard {
+            if policy.address != ExitPolicyAddress::Wildcard {
                 continue;
             }
             for i in compute_range_from_port(&policy.port) {
@@ -134,7 +134,7 @@ pub fn get_distributions(
         }
 
         for port in 1..port_array.len() {
-            if port_array[port] == Some(descriptor::ExitPolicyType::Accept) {
+            if port_array[port] == Some(ExitPolicyType::Accept) {
                 exit_distrs[port]
                     .get_or_insert_with(RelayDistributionCollector::new)
                     .push(relay, weight(Position::Exit));

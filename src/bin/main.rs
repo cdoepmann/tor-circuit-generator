@@ -1,5 +1,4 @@
-use torscaler::parser;
-use torscaler::parser::consensus;
+use tordoc;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -9,17 +8,15 @@ use tor_circuit_generator::*;
 
 fn main() {
     println!("Benchmarking");
-    let asn_db_file_path = "GeoLite2-ASN-Blocks-IPv4.csv";
     let consensus_file_path = "/home/christoph/forschung/scalability-vs-anonymity/circuit-simulation/runs/horz-1.5/consensus/consensus";
     let desc_file_path = "/home/christoph/forschung/scalability-vs-anonymity/circuit-simulation/runs/horz-1.5/descriptors.all";
 
     let now = Instant::now();
-    let asn_db = parser::asn::AsnDb::new(asn_db_file_path).unwrap();
     let consensus = {
         let mut raw = String::new();
         let mut file = File::open(consensus_file_path).unwrap();
         file.read_to_string(&mut raw).unwrap();
-        parser::parse_consensus(&raw, &asn_db).unwrap()
+        tordoc::Consensus::from_str(raw).unwrap()
     };
 
     let elapsed = now.elapsed();
@@ -30,7 +27,7 @@ fn main() {
         let mut raw = String::new();
         let mut file = File::open(desc_file_path).unwrap();
         file.read_to_string(&mut raw).unwrap();
-        parser::parse_descriptors(&raw).unwrap()
+        tordoc::Descriptor::many_from_str(raw).unwrap()
     };
     let elapsed = now.elapsed();
     println!("Parsing descriptors: {:.2?}", elapsed);
@@ -90,8 +87,8 @@ fn main() {
     let mut sum = 0;
     for relay in circuit_generator.relays.into_iter() {
         let weight;
-        let guard = consensus::Flag::Guard;
-        let exit = consensus::Flag::Exit;
+        let guard = tordoc::consensus::Flag::Guard;
+        let exit = tordoc::consensus::Flag::Exit;
 
         if relay.flags.contains(&guard) && relay.flags.contains(&exit) {
             weight = *consensus.weights.get("Wed").unwrap();

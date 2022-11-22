@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use ipnet::IpNet;
 
-use torscaler::parser::consensus;
+use tordoc;
 
 use crate::containers::{TorCircuit, TorCircuitRelay};
 use crate::distribution::{get_distributions, RelayDistribution};
@@ -164,10 +164,7 @@ impl<'a> CircuitGenerator {
     /// Construct a new circuit generator from Tor documents.
     ///
     /// This does the heavy lifting, building the distribution indices etc.
-    pub fn new(
-        consensus: &'a consensus::ConsensusDocument,
-        descriptors: Vec<torscaler::parser::descriptor::Descriptor>,
-    ) -> Self {
+    pub fn new(consensus: &'a tordoc::Consensus, descriptors: Vec<tordoc::Descriptor>) -> Self {
         let relays = compute_tor_circuit_relays(consensus, descriptors);
         let family_agreement = compute_families(&relays);
 
