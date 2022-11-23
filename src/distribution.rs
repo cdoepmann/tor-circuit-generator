@@ -94,8 +94,8 @@ fn positional_weight(
 /// `TorCircuitRelay`
 ///
 /// This returns a tuple containing three distributions: (guard, middle, exit).
-/// Note that the exit "distribution" is in fact a `Vec` of distributions,
-/// one for each exit port.
+/// Note that the exit "distribution" is in fact a map of distributions,
+/// one for each requested exit port.
 pub(crate) fn get_distributions(
     relays: &Vec<Rc<TorCircuitRelay>>,
     consensus_weights: PositionWeights,
