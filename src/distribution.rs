@@ -127,14 +127,14 @@ pub fn get_distributions(
                 continue;
             }
             for i in compute_range_from_port(&policy.port) {
-                if port_array[i] == None {
+                if port_array[i].is_none() {
                     port_array[i] = Some(policy.ep_type);
                 }
             }
         }
 
         for port in 1..port_array.len() {
-            if port_array[port] == Some(ExitPolicyType::Accept) {
+            if let Some(ExitPolicyType::Accept) = port_array[port] {
                 exit_distrs[port]
                     .get_or_insert_with(RelayDistributionCollector::new)
                     .push(relay, weight(Position::Exit));
