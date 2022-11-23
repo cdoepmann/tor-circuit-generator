@@ -32,7 +32,8 @@ fn main() {
     let elapsed = now.elapsed();
     println!("Parsing descriptors: {:.2?}", elapsed);
     let now = Instant::now();
-    let circuit_generator: CircuitGenerator = CircuitGenerator::new(&consensus, descriptors);
+    let circuit_generator: CircuitGenerator =
+        CircuitGenerator::new(&consensus, descriptors, vec![443]);
     let elapsed = now.elapsed();
     println!("Preprocessing Cuircuit building: {:.2?}", elapsed);
     println!("Start building circuits!");
@@ -76,10 +77,7 @@ fn main() {
     );
     println!(
         "Exit (443) weight:\t{}",
-        circuit_generator.exit_distrs[443]
-            .as_ref()
-            .unwrap()
-            .bandwidth_sum
+        circuit_generator.exit_distrs[&443].bandwidth_sum
     );
 
     //let relay_bw_sum = circuit_generator.relays.iter().reduce()
@@ -112,7 +110,7 @@ fn main() {
 
     let mut port_bw_map: HashMap<u64, Vec<u16>> = HashMap::new();
     for port in 0..u16::MAX {
-        if let Some(distr) = &circuit_generator.exit_distrs[port as usize] {
+        if let Some(distr) = &circuit_generator.exit_distrs.get(&port) {
             match port_bw_map.get_mut(&distr.bandwidth_sum) {
                 Some(value) => {
                     value.push(port);

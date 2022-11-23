@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use rand::prelude::*;
@@ -99,15 +99,16 @@ fn positional_weight(
 pub fn get_distributions(
     relays: &Vec<Rc<TorCircuitRelay>>,
     consensus_weights: &BTreeMap<String, u64>,
+    exit_ports: Vec<u16>,
 ) -> (
     RelayDistribution,
     RelayDistribution,
-    Vec<Option<RelayDistribution>>,
+    HashMap<u16, RelayDistribution>,
 ) {
     let mut guard_distr = RelayDistributionCollector::new();
     let mut middle_distr = RelayDistributionCollector::new();
 
-    let mut exit_distrs: Vec<_> = (0..=u16::MAX).into_iter().map(|_| None).collect();
+    let mut exit_distrs = HashMap::new();
 
     for relay in relays.iter() {
         let relay_type = RelayType::from_relay(relay);
@@ -127,10 +128,13 @@ pub fn get_distributions(
                 entries: ref rules,
             } => {
                 for rule in rules.iter() {
-                    for port in rule.iter_ports() {
-                        exit_distrs[port as usize]
-                            .get_or_insert_with(RelayDistributionCollector::new)
-                            .push(relay, weight(Position::Exit));
+                    for port in exit_ports.iter() {
+                        if rule.contains(*port) {
+                            exit_distrs
+                                .entry(*port)
+                                .or_insert_with(RelayDistributionCollector::new)
+                                .push(relay, weight(Position::Exit));
+                        }
                     }
                 }
             }
@@ -153,8 +157,7 @@ pub fn get_distributions(
         // Exit
         exit_distrs
             .into_iter()
-            // finalize to RelayDistribution objects
-            .map(|o| o.map(|c| c.into()))
+            .map(|(k, v)| (k, v.into()))
             .collect(),
     )
 }

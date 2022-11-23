@@ -22,7 +22,7 @@ impl fmt::Display for TorGeneratorError {
                 write!(f, "Could not select a guard relay")
             }
             TorGeneratorError::UnableToSelectExit(port) => {
-                write!(f, "Could not select an exit relay for port: {}", port)
+                write!(f, "Could not select an exit relay for port: {}. Either there is no suitable exit relay or the port was not selected during initialization of the circuit generator.", port)
             }
         }
     }

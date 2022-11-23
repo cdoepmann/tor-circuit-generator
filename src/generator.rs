@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use ipnet::IpNet;
@@ -67,6 +67,16 @@ impl<'a> TorCircuitConstruction<'a> {
         Err(Box::new(TorGeneratorError::UnableToSelectGuard))
     }
 
+    fn get_exit_distr(
+        &self,
+        target_port: u16,
+    ) -> Result<&RelayDistribution, Box<dyn std::error::Error>> {
+        self.cg
+            .exit_distrs
+            .get(&target_port)
+            .ok_or(Box::new(TorGeneratorError::UnableToSelectExit(target_port)))
+    }
+
     pub fn sample_exit_relay(
         &self,
         target_port: u16,
@@ -93,10 +103,7 @@ impl<'a> TorCircuitConstruction<'a> {
             guess if have to ensure this by checking and resampling if necessary,
             due to the two layered sample approach, adjusting the distributions is not possible
         */
-        match &self.cg.exit_distrs[target_port as usize] {
-            Some(distr) => Ok(distr.sample()),
-            None => Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port))),
-        }
+        Ok(self.get_exit_distr(target_port)?.sample())
     }
 
     pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay> {
@@ -156,7 +163,7 @@ pub struct CircuitGenerator {
     pub relays: Vec<Rc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
-    pub exit_distrs: Vec<Option<RelayDistribution>>,
+    pub exit_distrs: HashMap<u16, RelayDistribution>,
     pub family_agreement: MutualAgreement,
 }
 
@@ -164,12 +171,16 @@ impl<'a> CircuitGenerator {
     /// Construct a new circuit generator from Tor documents.
     ///
     /// This does the heavy lifting, building the distribution indices etc.
-    pub fn new(consensus: &'a tordoc::Consensus, descriptors: Vec<tordoc::Descriptor>) -> Self {
+    pub fn new(
+        consensus: &'a tordoc::Consensus,
+        descriptors: Vec<tordoc::Descriptor>,
+        exit_ports: Vec<u16>,
+    ) -> Self {
         let relays = compute_tor_circuit_relays(consensus, descriptors);
         let family_agreement = compute_families(&relays);
 
         let (guard_distr, middle_distr, exit_distrs) =
-            get_distributions(&relays, &consensus.weights);
+            get_distributions(&relays, &consensus.weights, exit_ports);
 
         CircuitGenerator {
             relays,
