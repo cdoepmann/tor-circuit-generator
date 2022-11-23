@@ -9,7 +9,9 @@ use ipnet::IpNet;
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-use tordoc::{consensus::CondensedExitPolicy, consensus::Flag, descriptor::OrAddress, Fingerprint};
+use tordoc::{
+    consensus::CondensedExitPolicy, consensus::Flag, descriptor::OrAddress, Consensus, Fingerprint,
+};
 
 /// A pair of IP network mask with exit port.
 #[derive(Debug, Clone)]
@@ -87,5 +89,39 @@ impl<'a> fmt::Display for TorCircuit {
         }
         line += format!("{}", self.guard.fingerprint).as_str();
         write!(f, "{}", line)
+    }
+}
+
+/// A container for the per-position relay weights
+#[allow(non_snake_case)]
+pub(crate) struct PositionWeights {
+    pub Wgg: u64,
+    pub Wgd: u64,
+    pub Wgm: u64,
+    pub Wme: u64,
+    pub Wmg: u64,
+    pub Wmd: u64,
+    pub Wmm: u64,
+    pub Wee: u64,
+    pub Weg: u64,
+    pub Wed: u64,
+    pub Wem: u64,
+}
+
+impl PositionWeights {
+    pub fn from_consensus(consensus: &Consensus) -> Self {
+        PositionWeights {
+            Wgg: *consensus.weights.get("Wgg").unwrap(),
+            Wgd: *consensus.weights.get("Wgd").unwrap(),
+            Wgm: *consensus.weights.get("Wgm").unwrap(),
+            Wme: *consensus.weights.get("Wme").unwrap(),
+            Wmg: *consensus.weights.get("Wmg").unwrap(),
+            Wmd: *consensus.weights.get("Wmd").unwrap(),
+            Wmm: *consensus.weights.get("Wmm").unwrap(),
+            Wee: *consensus.weights.get("Wee").unwrap(),
+            Weg: *consensus.weights.get("Weg").unwrap(),
+            Wed: *consensus.weights.get("Wed").unwrap(),
+            Wem: *consensus.weights.get("Wem").unwrap(),
+        }
     }
 }

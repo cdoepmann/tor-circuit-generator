@@ -7,7 +7,7 @@ use rand_distr::WeightedAliasIndex;
 
 use tordoc::consensus::{CondensedExitPolicy, ExitPolicyType, Flag};
 
-use crate::containers::{Position, RelayType, TorCircuitRelay};
+use crate::containers::{Position, PositionWeights, RelayType, TorCircuitRelay};
 
 /// A weighted distribution for fast, weighted sampling from relays.
 ///
@@ -66,26 +66,26 @@ impl RelayDistributionCollector {
 fn positional_weight(
     position: Position,
     relay_type: RelayType,
-    consensus_weights: &BTreeMap<String, u64>,
+    consensus_weights: &PositionWeights,
 ) -> u64 {
     match position {
         Position::Guard => match relay_type {
             RelayType::Exit => 0,
-            RelayType::Guard => *consensus_weights.get("Wgg").unwrap(),
-            RelayType::GuardAndExit => *consensus_weights.get("Wgd").unwrap(),
-            RelayType::NotFlagged => *consensus_weights.get("Wgm").unwrap(),
+            RelayType::Guard => consensus_weights.Wgg,
+            RelayType::GuardAndExit => consensus_weights.Wgd,
+            RelayType::NotFlagged => consensus_weights.Wgm,
         },
         Position::Middle => match relay_type {
-            RelayType::Exit => *consensus_weights.get("Wme").unwrap(),
-            RelayType::Guard => *consensus_weights.get("Wmg").unwrap(),
-            RelayType::GuardAndExit => *consensus_weights.get("Wmd").unwrap(),
-            RelayType::NotFlagged => *consensus_weights.get("Wmm").unwrap(),
+            RelayType::Exit => consensus_weights.Wme,
+            RelayType::Guard => consensus_weights.Wmg,
+            RelayType::GuardAndExit => consensus_weights.Wmd,
+            RelayType::NotFlagged => consensus_weights.Wmm,
         },
         Position::Exit => match relay_type {
-            RelayType::Exit => *consensus_weights.get("Wee").unwrap(),
-            RelayType::Guard => *consensus_weights.get("Weg").unwrap(),
-            RelayType::GuardAndExit => *consensus_weights.get("Wed").unwrap(),
-            RelayType::NotFlagged => *consensus_weights.get("Wem").unwrap(),
+            RelayType::Exit => consensus_weights.Wee,
+            RelayType::Guard => consensus_weights.Weg,
+            RelayType::GuardAndExit => consensus_weights.Wed,
+            RelayType::NotFlagged => consensus_weights.Wem,
         },
     }
 }
@@ -96,9 +96,9 @@ fn positional_weight(
 /// This returns a tuple containing three distributions: (guard, middle, exit).
 /// Note that the exit "distribution" is in fact a `Vec` of distributions,
 /// one for each exit port.
-pub fn get_distributions(
+pub(crate) fn get_distributions(
     relays: &Vec<Rc<TorCircuitRelay>>,
-    consensus_weights: &BTreeMap<String, u64>,
+    consensus_weights: PositionWeights,
     exit_ports: Vec<u16>,
 ) -> (
     RelayDistribution,
@@ -112,8 +112,9 @@ pub fn get_distributions(
 
     for relay in relays.iter() {
         let relay_type = RelayType::from_relay(relay);
-        let weight =
-            |pos: Position| relay.bandwidth * positional_weight(pos, relay_type, consensus_weights);
+        let weight = |pos: Position| {
+            relay.bandwidth * positional_weight(pos, relay_type, &consensus_weights)
+        };
 
         // handle exit distributions
         match relay.exit_policy {

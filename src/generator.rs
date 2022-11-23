@@ -5,7 +5,7 @@ use ipnet::IpNet;
 
 use tordoc;
 
-use crate::containers::{TorCircuit, TorCircuitRelay};
+use crate::containers::{PositionWeights, TorCircuit, TorCircuitRelay};
 use crate::distribution::{get_distributions, RelayDistribution};
 use crate::error::TorGeneratorError;
 use crate::input::{compute_families, compute_tor_circuit_relays};
@@ -179,8 +179,11 @@ impl<'a> CircuitGenerator {
         let relays = compute_tor_circuit_relays(consensus, descriptors);
         let family_agreement = compute_families(&relays);
 
-        let (guard_distr, middle_distr, exit_distrs) =
-            get_distributions(&relays, &consensus.weights, exit_ports);
+        let (guard_distr, middle_distr, exit_distrs) = get_distributions(
+            &relays,
+            PositionWeights::from_consensus(&consensus),
+            exit_ports,
+        );
 
         CircuitGenerator {
             relays,
