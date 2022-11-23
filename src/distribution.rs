@@ -115,7 +115,7 @@ pub fn get_distributions(
             |pos: Position| relay.bandwidth * positional_weight(pos, relay_type, consensus_weights);
 
         // handle exit distributions
-        match relay.exit_policies {
+        match relay.exit_policy {
             CondensedExitPolicy {
                 policy_type: ExitPolicyType::Reject,
                 ..

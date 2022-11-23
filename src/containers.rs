@@ -28,7 +28,7 @@ pub struct TorCircuitRelay {
     pub flags: Vec<Flag>,
     /* For easier debugging */
     pub nickname: String,
-    pub exit_policies: CondensedExitPolicy,
+    pub exit_policy: CondensedExitPolicy,
 }
 
 impl PartialEq for TorCircuitRelay {

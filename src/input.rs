@@ -109,7 +109,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         }
         circuit_relay.flags(flags);
         circuit_relay.or_addresses(descriptor.or_addresses);
-        circuit_relay.exit_policies(consensus_relay.exit_policy.clone());
+        circuit_relay.exit_policy(consensus_relay.exit_policy.clone());
 
         let relay = match circuit_relay.build() {
             Ok(circ_relay) => circ_relay,
