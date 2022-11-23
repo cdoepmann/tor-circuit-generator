@@ -3,24 +3,12 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use tordoc::{
-    consensus::Flag, descriptor::ExitPolicyPort, descriptor::ExitPortRange,
-    descriptor::FamilyMember, error::DocumentCombiningError, Consensus, Descriptor, Fingerprint,
+    consensus::Flag, descriptor::FamilyMember, error::DocumentCombiningError, Consensus,
+    Descriptor, Fingerprint,
 };
 
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
 use crate::mutual_agreement::MutualAgreement;
-
-pub(crate) fn compute_range_from_port(port: &ExitPolicyPort) -> impl IntoIterator<Item = usize> {
-    match port {
-        ExitPolicyPort::Wildcard => {
-            return 1..=u16::MAX.into();
-        }
-        ExitPolicyPort::Port(value) => match value {
-            ExitPortRange::Single(v) => return *v as usize..=*v as usize,
-            ExitPortRange::Interval(v1, v2) => return *v1 as usize..=*v2 as usize,
-        },
-    }
-}
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a Consensus,
@@ -121,7 +109,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         }
         circuit_relay.flags(flags);
         circuit_relay.or_addresses(descriptor.or_addresses);
-        circuit_relay.exit_policies(descriptor.exit_policy);
+        circuit_relay.exit_policies(consensus_relay.exit_policy.clone());
 
         let relay = match circuit_relay.build() {
             Ok(circ_relay) => circ_relay,

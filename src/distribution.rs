@@ -5,11 +5,9 @@ use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
-use tordoc::consensus::Flag;
-use tordoc::descriptor::{ExitPolicyAddress, ExitPolicyType};
+use tordoc::consensus::{CondensedExitPolicy, ExitPolicyType, Flag};
 
 use crate::containers::{Position, RelayType, TorCircuitRelay};
-use crate::input::compute_range_from_port;
 
 /// A weighted distribution for fast, weighted sampling from relays.
 ///
@@ -111,35 +109,32 @@ pub fn get_distributions(
 
     let mut exit_distrs: Vec<_> = (0..=u16::MAX).into_iter().map(|_| None).collect();
 
-    const INIT_PORT_ARRAY: Option<ExitPolicyType> = None;
     for relay in relays.iter() {
         let relay_type = RelayType::from_relay(relay);
         let weight =
             |pos: Position| relay.bandwidth * positional_weight(pos, relay_type, consensus_weights);
 
         // handle exit distributions
-
-        let mut port_array = Box::new([INIT_PORT_ARRAY; u16::MAX as usize + 1]);
-
-        for policy in &relay.exit_policies.rules {
-            /* We only consider rules that apply to ALL IP addresses. */
-            if policy.address != ExitPolicyAddress::Wildcard {
-                continue;
+        match relay.exit_policies {
+            CondensedExitPolicy {
+                policy_type: ExitPolicyType::Reject,
+                ..
+            } => {
+                // relay doesnt allow any exit port, ignore it
             }
-            for i in compute_range_from_port(&policy.port) {
-                if port_array[i].is_none() {
-                    port_array[i] = Some(policy.ep_type);
+            CondensedExitPolicy {
+                policy_type: ExitPolicyType::Accept,
+                entries: ref rules,
+            } => {
+                for rule in rules.iter() {
+                    for port in rule.iter_ports() {
+                        exit_distrs[port as usize]
+                            .get_or_insert_with(RelayDistributionCollector::new)
+                            .push(relay, weight(Position::Exit));
+                    }
                 }
             }
-        }
-
-        for port in 1..port_array.len() {
-            if let Some(ExitPolicyType::Accept) = port_array[port] {
-                exit_distrs[port]
-                    .get_or_insert_with(RelayDistributionCollector::new)
-                    .push(relay, weight(Position::Exit));
-            }
-        }
+        };
 
         // Handle guard distribution
         if relay.flags.contains(&Flag::Guard) {

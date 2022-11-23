@@ -9,9 +9,7 @@ use ipnet::IpNet;
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-use tordoc::{
-    consensus::Flag, descriptor::DescriptorExitPolicy, descriptor::OrAddress, Fingerprint,
-};
+use tordoc::{consensus::CondensedExitPolicy, consensus::Flag, descriptor::OrAddress, Fingerprint};
 
 /// A pair of IP network mask with exit port.
 #[derive(Debug, Clone)]
@@ -30,7 +28,7 @@ pub struct TorCircuitRelay {
     pub flags: Vec<Flag>,
     /* For easier debugging */
     pub nickname: String,
-    pub exit_policies: DescriptorExitPolicy,
+    pub exit_policies: CondensedExitPolicy,
 }
 
 impl PartialEq for TorCircuitRelay {
