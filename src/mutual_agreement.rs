@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+
+use crate::RHashMap;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Possibility<T> {
@@ -9,13 +10,13 @@ pub enum Possibility<T> {
 }
 
 pub struct MutualAgreement {
-    map: HashMap<(String, String), Possibility<String>>,
+    map: RHashMap<(String, String), Possibility<String>>,
 }
 
 impl MutualAgreement {
     pub fn new() -> Self {
         MutualAgreement {
-            map: HashMap::new(),
+            map: RHashMap::default(),
         }
     }
     pub fn agree(&mut self, a: &str, b: &str) {
@@ -39,8 +40,8 @@ impl MutualAgreement {
         }
     }
 
-    pub fn into_agreement_map(self) -> HashMap<String, HashMap<String, bool>> {
-        let mut agreement_map: HashMap<String, HashMap<String, bool>> = HashMap::new();
+    pub fn into_agreement_map(self) -> RHashMap<String, RHashMap<String, bool>> {
+        let mut agreement_map: RHashMap<String, RHashMap<String, bool>> = RHashMap::default();
         for (k, v) in self.map {
             if v == Possibility::Yes {
                 let (a, b) = k;
@@ -55,11 +56,11 @@ impl MutualAgreement {
     }
 }
 fn safe_get_mut<'a>(
-    map: &'a mut HashMap<String, HashMap<String, bool>>,
+    map: &'a mut RHashMap<String, RHashMap<String, bool>>,
     key: &str,
-) -> &'a mut HashMap<String, bool> {
+) -> &'a mut RHashMap<String, bool> {
     if !map.contains_key(key) {
-        map.insert(String::from(key), HashMap::new());
+        map.insert(String::from(key), RHashMap::default());
     }
     match map.get_mut(key) {
         Some(map) => map,

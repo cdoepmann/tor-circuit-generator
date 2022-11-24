@@ -1,5 +1,4 @@
-use std::collections::hash_map::{Entry, HashMap};
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
 use tordoc::{
@@ -9,6 +8,7 @@ use tordoc::{
 
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
 use crate::mutual_agreement::MutualAgreement;
+use crate::{RHashMap, RHashSet};
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a Consensus,
@@ -20,12 +20,12 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
 
-    let mut descriptors: HashMap<Fingerprint, Descriptor> = descriptors
+    let mut descriptors: RHashMap<Fingerprint, Descriptor> = descriptors
         .into_iter()
         .map(|d| (d.digest.clone(), d))
         .collect();
 
-    let mut nicknames_to_fingerprints: HashMap<String, Option<Fingerprint>> = HashMap::new();
+    let mut nicknames_to_fingerprints: RHashMap<String, Option<Fingerprint>> = RHashMap::default();
     {
         for relay in consensus.relays.iter() {
             let nickname = relay.nickname.clone();
@@ -41,7 +41,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         }
     }
 
-    let known_fingerprints: HashSet<Fingerprint> = consensus
+    let known_fingerprints: RHashSet<Fingerprint> = consensus
         .relays
         .iter()
         .map(|r| r.fingerprint.clone())

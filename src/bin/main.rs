@@ -1,6 +1,6 @@
 use tordoc;
 
-use std::collections::HashMap;
+use crate::RHashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::Instant;
@@ -108,7 +108,7 @@ fn main() {
     //     .unwrap()
     //     .bandwidth_sum;
 
-    let mut port_bw_map: HashMap<u64, Vec<u16>> = HashMap::new();
+    let mut port_bw_map: RHashMap<u64, Vec<u16>> = RHashMap::default();
     for port in 0..u16::MAX {
         if let Some(distr) = &circuit_generator.exit_distrs.get(&port) {
             match port_bw_map.get_mut(&distr.bandwidth_sum) {

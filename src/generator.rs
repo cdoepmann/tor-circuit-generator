@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use ipnet::IpNet;
@@ -10,6 +9,7 @@ use crate::distribution::{get_distributions, RelayDistribution};
 use crate::error::TorGeneratorError;
 use crate::input::{compute_families, compute_tor_circuit_relays};
 use crate::mutual_agreement::MutualAgreement;
+use crate::{RHashMap, RHashSet};
 
 const MAX_SAMPLE_TRYS: u32 = 1000;
 struct TorCircuitConstruction<'a> {
@@ -17,7 +17,7 @@ struct TorCircuitConstruction<'a> {
     middle: Vec<Rc<TorCircuitRelay>>,
     exit: Option<Rc<TorCircuitRelay>>,
     relays: Vec<Rc<TorCircuitRelay>>,
-    hs_subnets: HashSet<String>,
+    hs_subnets: RHashSet<String>,
     cg: &'a CircuitGenerator,
 }
 impl<'a> TorCircuitConstruction<'a> {
@@ -27,7 +27,7 @@ impl<'a> TorCircuitConstruction<'a> {
             middle: vec![],
             exit: None,
             relays: vec![],
-            hs_subnets: HashSet::new(),
+            hs_subnets: RHashSet::default(),
             cg: cg,
         }
     }
@@ -163,7 +163,7 @@ pub struct CircuitGenerator {
     pub relays: Vec<Rc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
-    pub exit_distrs: HashMap<u16, RelayDistribution>,
+    pub exit_distrs: RHashMap<u16, RelayDistribution>,
     pub family_agreement: MutualAgreement,
 }
 

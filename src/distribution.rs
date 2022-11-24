@@ -1,13 +1,13 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
-use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
 use tordoc::consensus::{CondensedExitPolicy, ExitPolicyType, Flag};
 
 use crate::containers::{Position, PositionWeights, RelayType, TorCircuitRelay};
+use crate::seeded_rand::get_rng;
+use crate::RHashMap;
 
 /// A weighted distribution for fast, weighted sampling from relays.
 ///
@@ -23,7 +23,7 @@ pub struct RelayDistribution {
 impl RelayDistribution {
     /// Samples a relay from the distribution, returning it as an `Rc`.
     pub(crate) fn sample(&self) -> Rc<TorCircuitRelay> {
-        let mut rng = thread_rng();
+        let mut rng = get_rng();
         let relay_idx = self.distr.sample(&mut rng);
         Rc::clone(&self.relays[relay_idx])
     }
@@ -103,12 +103,12 @@ pub(crate) fn get_distributions(
 ) -> (
     RelayDistribution,
     RelayDistribution,
-    HashMap<u16, RelayDistribution>,
+    RHashMap<u16, RelayDistribution>,
 ) {
     let mut guard_distr = RelayDistributionCollector::new();
     let mut middle_distr = RelayDistributionCollector::new();
 
-    let mut exit_distrs = HashMap::new();
+    let mut exit_distrs = RHashMap::default();
 
     for relay in relays.iter() {
         let relay_type = RelayType::from_relay(relay);
