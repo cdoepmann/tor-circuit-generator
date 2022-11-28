@@ -1,10 +1,8 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
-use tordoc::consensus;
 use tordoc::consensus::{CondensedExitPolicy, ExitPolicyType, Flag};
 
 use crate::containers::{Position, PositionWeights, RelayType, TorCircuitRelay};
@@ -56,6 +54,7 @@ trait AbstractRelayDistributionFilteredPush {
 struct GuardDistributionCollector {
     collector: AbstractRelayDistributionCollector,
 }
+
 impl GuardDistributionCollector {
     fn new(consensus_weights: &PositionWeights) -> GuardDistributionCollector {
         GuardDistributionCollector {
@@ -63,19 +62,23 @@ impl GuardDistributionCollector {
         }
     }
 }
+
 impl AbstractRelayDistributionFilteredPush for GuardDistributionCollector {
     fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
         relay.flags.contains(&Flag::Guard)
             && relay.flags.contains(&Flag::Valid)
             && relay.flags.contains(&Flag::Running)
     }
+
     fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
 }
+
 struct MiddleDistributionCollector {
     collector: AbstractRelayDistributionCollector,
 }
+
 impl MiddleDistributionCollector {
     fn new(consensus_weights: &PositionWeights) -> MiddleDistributionCollector {
         MiddleDistributionCollector {
@@ -83,10 +86,12 @@ impl MiddleDistributionCollector {
         }
     }
 }
+
 impl AbstractRelayDistributionFilteredPush for MiddleDistributionCollector {
     fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
         relay.flags.contains(&Flag::Running)
     }
+
     fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
@@ -99,17 +104,20 @@ struct ExitDistributionCollector {
 impl ExitDistributionCollector {
     fn new(consensus_weights: &PositionWeights, exit_ports: Vec<u16>) -> ExitDistributionCollector {
         let mut collectors: RHashMap<u16, AbstractRelayDistributionCollector> = RHashMap::default();
+
         for port in exit_ports {
             collectors.insert(
                 port,
                 AbstractRelayDistributionCollector::new(Position::Exit, consensus_weights),
             );
         }
+
         ExitDistributionCollector {
             collectors: collectors,
         }
     }
 }
+
 impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
     fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
         if !relay.flags.contains(&Flag::Valid) {
@@ -139,6 +147,7 @@ impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
             } => {
                 // relay doesnt allow any exit port, ignore it
             }
+
             CondensedExitPolicy {
                 policy_type: ExitPolicyType::Accept,
                 entries: ref rules,
@@ -161,6 +170,7 @@ struct TypeDependentWeights {
     guard_and_exit: u64,
     not_flagged: u64,
 }
+
 impl TypeDependentWeights {
     fn new(position: Position, consensus_weights: &PositionWeights) -> TypeDependentWeights {
         match position {
@@ -184,6 +194,7 @@ impl TypeDependentWeights {
             },
         }
     }
+
     fn get_weight_by_type(&self, relay_type: RelayType) -> u64 {
         match relay_type {
             RelayType::Exit => self.exit,
@@ -192,11 +203,13 @@ impl TypeDependentWeights {
             RelayType::NotFlagged => self.not_flagged,
         }
     }
+
     fn get_weight(&self, relay: &TorCircuitRelay) -> u64 {
         let relay_type = RelayType::from_relay(relay);
         self.get_weight_by_type(relay_type)
     }
 }
+
 /// A possibly unfinished version of a `RelayDistribution`
 struct AbstractRelayDistributionCollector {
     bandwidth_sum: u64,
