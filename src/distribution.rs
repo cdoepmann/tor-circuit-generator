@@ -41,13 +41,13 @@ impl From<AbstractRelayDistributionCollector> for RelayDistribution {
 
 trait AbstractRelayDistributionFilteredPush {
     fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool;
-    fn push(&mut self, relay: &Rc<TorCircuitRelay>);
+    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>);
 
     fn filtered_push(&mut self, relay: &Rc<TorCircuitRelay>) {
         if !self.filter(relay) {
             return;
         }
-        self.push(relay);
+        self.push_unfiltered(relay);
     }
 }
 
@@ -70,7 +70,7 @@ impl AbstractRelayDistributionFilteredPush for GuardDistributionCollector {
             && relay.flags.contains(&Flag::Running)
     }
 
-    fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
 }
@@ -92,7 +92,7 @@ impl AbstractRelayDistributionFilteredPush for MiddleDistributionCollector {
         relay.flags.contains(&Flag::Running)
     }
 
-    fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
 }
@@ -138,7 +138,7 @@ impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
         return true;
     }
 
-    fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
         // handle exit distributions
         match relay.exit_policy {
             CondensedExitPolicy {
