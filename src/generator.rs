@@ -3,6 +3,7 @@ use std::rc::Rc;
 use ipnet::IpNet;
 
 use tordoc;
+use tordoc::Fingerprint;
 
 use crate::containers::{PositionWeights, TorCircuit, TorCircuitRelay};
 use crate::distribution::{get_distributions, RelayDistribution};
@@ -160,7 +161,7 @@ impl<'a> TorCircuitConstruction<'a> {
 }
 
 pub struct CircuitGenerator {
-    pub relays: Vec<Rc<TorCircuitRelay>>,
+    pub relays: RHashMap<Fingerprint, Rc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
     pub exit_distrs: RHashMap<u16, RelayDistribution>,
@@ -186,7 +187,10 @@ impl<'a> CircuitGenerator {
         );
 
         CircuitGenerator {
-            relays,
+            relays: relays
+                .into_iter()
+                .map(|x| (x.fingerprint.clone(), x))
+                .collect(),
             exit_distrs,
             guard_distr,
             middle_distr,
@@ -215,5 +219,10 @@ impl<'a> CircuitGenerator {
                 .exit
                 .ok_or(TorGeneratorError::UnableToSelectExit(target_port))?,
         })
+    }
+
+    /// Given a fingerprint, get the stored relay, if present
+    pub fn lookup_relay(&self, fingerprint: &Fingerprint) -> Option<Rc<TorCircuitRelay>> {
+        self.relays.get(fingerprint).map(|x| x.clone())
     }
 }

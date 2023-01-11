@@ -48,7 +48,7 @@ fn main() {
         CircuitGenerator::new(&consensus, descriptors, vec![443]);
 
     let mut ip_to_descmap: RHashMap<String, Rc<TorCircuitRelay>> = RHashMap::default();
-    circuit_generator.relays.iter().for_each(|relay| {
+    circuit_generator.relays.values().for_each(|relay| {
         relay.or_addresses.iter().for_each(|addr| {
             ip_to_descmap.insert(addr.ip.to_string(), Rc::clone(relay));
         })
