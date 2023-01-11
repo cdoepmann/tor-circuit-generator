@@ -20,9 +20,11 @@ struct TorCircuitConstruction<'a> {
     relays: Vec<Rc<TorCircuitRelay>>,
     hs_subnets: RHashSet<String>,
     cg: &'a CircuitGenerator,
+    need_fast: bool,
+    need_stable: bool,
 }
 impl<'a> TorCircuitConstruction<'a> {
-    pub fn new(cg: &'a CircuitGenerator) -> Self {
+    pub fn new(cg: &'a CircuitGenerator, need_fast: bool, need_stable: bool) -> Self {
         TorCircuitConstruction {
             guard: None,
             middle: vec![],
@@ -30,6 +32,8 @@ impl<'a> TorCircuitConstruction<'a> {
             relays: vec![],
             hs_subnets: RHashSet::default(),
             cg: cg,
+            need_fast,
+            need_stable,
         }
     }
 
@@ -127,6 +131,15 @@ impl<'a> TorCircuitConstruction<'a> {
         }
     }
     pub fn check_requirements(&self, relay: &Rc<TorCircuitRelay>) -> bool {
+        // check the relay flags, if required
+        if self.need_fast && !relay.flags.contains(&tordoc::consensus::Flag::Fast) {
+            return false;
+        }
+        if self.need_stable && !relay.flags.contains(&tordoc::consensus::Flag::Stable) {
+            return false;
+        }
+
+        // check the family relationship
         for circ_relay in self.relays.iter() {
             let circ_relay_fingerprint_str = format!("{}", circ_relay.fingerprint);
             let relay_fingerprint_str = format!("{}", relay.fingerprint);
@@ -141,6 +154,8 @@ impl<'a> TorCircuitConstruction<'a> {
                 return false;
             }
         }
+
+        // check for same /16 prefix
         for address in &relay.or_addresses {
             /* This is the prefix we want to consider for Tor circuits */
             let net_addr = match IpNet::new(address.ip, 16) {
@@ -155,7 +170,7 @@ impl<'a> TorCircuitConstruction<'a> {
                 return false;
             }
         }
-        //println!("success!!!!");
+
         return true;
     }
 }
@@ -204,7 +219,22 @@ impl<'a> CircuitGenerator {
         length: u8,
         target_port: u16,
     ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
-        let mut circ = TorCircuitConstruction::new(self);
+        // build a circuit that doesn't require the Fast or Stable flag
+        self.build_circuit_with_flags(length, target_port, false, false)
+    }
+
+    /// Generate a single new circuit, potentially with constraints on the relays' flags.
+    ///
+    /// If `need_fast` or `need_stable` is true, then only relays with the respective
+    /// relay flag are selected.
+    pub fn build_circuit_with_flags(
+        &self,
+        length: u8,
+        target_port: u16,
+        need_fast: bool,
+        need_stable: bool,
+    ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
+        let mut circ = TorCircuitConstruction::new(self, need_fast, need_stable);
         circ.add_exit_relay(target_port)?;
         circ.add_guard_relay()?;
         for _ in 0..(length - 2) {
