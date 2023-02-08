@@ -26,6 +26,11 @@ impl RelayDistribution {
         let relay_idx = self.distr.sample(&mut rng);
         Rc::clone(&self.relays[relay_idx])
     }
+
+    /// Get the number of relays in this distribution
+    pub(crate) fn len(&self) -> usize {
+        self.relays.len()
+    }
 }
 
 impl From<AbstractRelayDistributionCollector> for RelayDistribution {

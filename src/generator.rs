@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::rc::Rc;
 
 use ipnet::IpNet;
@@ -38,11 +39,17 @@ impl<'a> TorCircuitConstruction<'a> {
     }
 
     pub fn add_exit_relay(&mut self, target_port: u16) -> Result<(), Box<dyn std::error::Error>> {
-        let exit_relay = self.sample_exit_relay(target_port)?;
-        self.update_requirements(&exit_relay);
-        self.relays.push(Rc::clone(&exit_relay));
-        self.exit = Some(Rc::clone(&exit_relay));
-        Ok(())
+        let mut exit_relay = self.sample_exit_relay(target_port)?;
+        for _ in 0..MAX_SAMPLE_TRYS {
+            if self.check_requirements(&exit_relay) {
+                self.update_requirements(&exit_relay);
+                self.relays.push(Rc::clone(&exit_relay));
+                self.exit = Some(Rc::clone(&exit_relay));
+                return Ok(());
+            }
+            exit_relay = self.sample_exit_relay(target_port)?;
+        }
+        Err(Box::new(TorGeneratorError::UnableToSelectExit(target_port)))
     }
     pub fn add_guard_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut guard_relay = self.sample_guard_relay();
@@ -56,6 +63,16 @@ impl<'a> TorCircuitConstruction<'a> {
             guard_relay = self.sample_guard_relay();
         }
         Err(Box::new(TorGeneratorError::UnableToSelectGuard))
+    }
+
+    pub fn set_guard_relay(
+        &mut self,
+        guard_relay: Rc<TorCircuitRelay>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_requirements(&guard_relay);
+        self.relays.push(Rc::clone(&guard_relay));
+        self.guard = Some(Rc::clone(&guard_relay));
+        return Ok(());
     }
 
     pub fn add_middle_relay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -234,9 +251,36 @@ impl<'a> CircuitGenerator {
         need_fast: bool,
         need_stable: bool,
     ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
+        self.build_circuit_with_flags_and_guard(length, target_port, None, need_fast, need_stable)
+    }
+
+    /// Generate a single new circuit, potentially with constraints on the relays' flags,
+    /// and a given guard to use.
+    ///
+    /// If `need_fast` or `need_stable` is true, then only relays with the respective
+    /// relay flag are selected.
+    pub fn build_circuit_with_flags_and_guard(
+        &self,
+        length: u8,
+        target_port: u16,
+        guard: Option<&Fingerprint>,
+        need_fast: bool,
+        need_stable: bool,
+    ) -> Result<TorCircuit, Box<dyn std::error::Error>> {
         let mut circ = TorCircuitConstruction::new(self, need_fast, need_stable);
-        circ.add_exit_relay(target_port)?;
-        circ.add_guard_relay()?;
+        match guard {
+            None => {
+                circ.add_exit_relay(target_port)?;
+                circ.add_guard_relay()?;
+            }
+            Some(fp) => {
+                let guard_relay = self
+                    .lookup_relay(fp)
+                    .ok_or(TorGeneratorError::UnableToSelectGuard)?;
+                circ.set_guard_relay(guard_relay)?;
+                circ.add_exit_relay(target_port)?;
+            }
+        }
         for _ in 0..(length - 2) {
             circ.add_middle_relay()?;
         }
@@ -254,5 +298,42 @@ impl<'a> CircuitGenerator {
     /// Given a fingerprint, get the stored relay, if present
     pub fn lookup_relay(&self, fingerprint: &Fingerprint) -> Option<Rc<TorCircuitRelay>> {
         self.relays.get(fingerprint).map(|x| x.clone())
+    }
+
+    /// Sample a new guard, given a `Vec` of fingerprints to avoid
+    ///
+    /// This is for usage by an external guard set handler.
+    pub fn sample_new_guard(
+        &self,
+        guards: &Vec<impl Borrow<Fingerprint>>,
+    ) -> Result<Rc<TorCircuitRelay>, Box<dyn std::error::Error>> {
+        'guard_sampling: for _ in 0..=(guards.len() * 3 + 1) {
+            // select some random relay
+            let relay = self.guard_distr.sample();
+
+            // check if it has to be avoided
+            for existing_guard in guards.iter().map(|x| x.borrow()) {
+                if existing_guard == &relay.fingerprint {
+                    continue 'guard_sampling;
+                }
+            }
+
+            return Ok(relay);
+        }
+
+        Err(Box::new(TorGeneratorError::UnableToSelectGuard))
+    }
+
+    /// Gets the number of relays in the consensus, grouped by relay type.
+    ///
+    /// Returns a tuple: `(guards, middles, exits)`. Note that the sum of these
+    /// numbers will likely be greater than the overall number of relays in the
+    /// consensus as relays can be part of multiple groups at the same time.
+    pub fn num_relays(&self) -> (usize, usize, usize) {
+        (
+            self.guard_distr.len(),
+            self.middle_distr.len(),
+            self.exit_distrs.len(),
+        )
     }
 }
