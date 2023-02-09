@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::RHashMap;
+use seeded_rand::RHashMap;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Possibility<T> {

@@ -3,11 +3,10 @@ use std::rc::Rc;
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
 
+use seeded_rand::{get_rng, RHashMap};
 use tordoc::consensus::{CondensedExitPolicy, ExitPolicyType, Flag};
 
 use crate::containers::{Position, PositionWeights, RelayType, TorCircuitRelay};
-use crate::seeded_rand::get_rng;
-use crate::RHashMap;
 
 /// A weighted distribution for fast, weighted sampling from relays.
 ///

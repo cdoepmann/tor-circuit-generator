@@ -17,6 +17,7 @@ twox-hash = "1.6.2"
 strum = "0.23"
 strum_macros = "0.23"
 tordoc = {path = "../tordoc"}
+seeded_rand = {path = "../seeded_rand"}
 ipnet = "2.5.0"
 derive_builder = "0.10.2"
 serde = { version = "1.0.103", features = ["derive"] }

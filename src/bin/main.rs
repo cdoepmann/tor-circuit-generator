@@ -6,7 +6,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::rc::Rc;
 
-use tor_circuit_generator::RHashMap;
+use seeded_rand::RHashMap;
 use tor_circuit_generator::{CircuitGenerator, TorCircuit, TorCircuitRelay};
 
 #[derive(Serialize, Deserialize)]

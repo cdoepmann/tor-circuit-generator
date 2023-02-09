@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use ipnet::IpNet;
 
+use seeded_rand::{RHashMap, RHashSet};
 use tordoc;
 use tordoc::Fingerprint;
 
@@ -11,7 +12,6 @@ use crate::distribution::{get_distributions, RelayDistribution};
 use crate::error::TorGeneratorError;
 use crate::input::{compute_families, compute_tor_circuit_relays};
 use crate::mutual_agreement::MutualAgreement;
-use crate::{RHashMap, RHashSet};
 
 const MAX_SAMPLE_TRYS: u32 = 1000;
 struct TorCircuitConstruction<'a> {

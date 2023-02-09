@@ -8,7 +8,7 @@ use tordoc::{
 
 use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
 use crate::mutual_agreement::MutualAgreement;
-use crate::{RHashMap, RHashSet};
+use seeded_rand::{RHashMap, RHashSet};
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a Consensus,
