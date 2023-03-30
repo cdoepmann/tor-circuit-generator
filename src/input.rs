@@ -21,6 +21,8 @@ struct MyDescriptor {
     or_addresses: Vec<OrAddress>,
 }
 
+#[derive(FromSuper)]
+#[fromsuper(from_type = "&'a Relay", unpack = true, make_refs = true)]
 struct MyRelay<'a> {
     pub fingerprint: &'a Fingerprint,
     pub digest: &'a Fingerprint,
@@ -29,30 +31,6 @@ struct MyRelay<'a> {
     /* For easier debugging */
     pub nickname: &'a String,
     pub exit_policy: &'a CondensedExitPolicy,
-}
-
-impl<'a> TryFrom<&'a Relay> for MyRelay<'a> {
-    type Error = Box<dyn Error + Send + Sync>;
-
-    fn try_from(value: &'a Relay) -> Result<Self, Self::Error> {
-        macro_rules! unpack_ref {
-            ($x:ident) => {
-                value
-                    .$x
-                    .as_ref()
-                    .ok_or_else(|| format!("relay is missing field {}", stringify!($x)))?
-            };
-        }
-
-        Ok(MyRelay {
-            fingerprint: unpack_ref!(fingerprint),
-            digest: unpack_ref!(digest),
-            bandwidth_weight: unpack_ref!(bandwidth_weight),
-            flags: unpack_ref!(flags),
-            nickname: unpack_ref!(nickname),
-            exit_policy: unpack_ref!(exit_policy),
-        })
-    }
 }
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
