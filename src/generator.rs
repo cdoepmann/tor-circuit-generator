@@ -204,21 +204,23 @@ impl<'a> CircuitGenerator {
     /// Construct a new circuit generator from Tor documents.
     ///
     /// This does the heavy lifting, building the distribution indices etc.
+    /// It may fail if the provided consensus is missing data that is essential
+    /// for generating circuits. In this case, an error is returned.
     pub fn new(
         consensus: &'a tordoc::Consensus,
         descriptors: Vec<tordoc::Descriptor>,
         exit_ports: Vec<u16>,
-    ) -> Self {
-        let relays = compute_tor_circuit_relays(consensus, descriptors);
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let relays = compute_tor_circuit_relays(consensus, descriptors)?;
         let family_agreement = compute_families(&relays);
 
         let (guard_distr, middle_distr, exit_distrs) = get_distributions(
             &relays,
-            PositionWeights::from_consensus(&consensus),
+            PositionWeights::from_consensus(&consensus)?,
             exit_ports,
         );
 
-        CircuitGenerator {
+        Ok(CircuitGenerator {
             relays: relays
                 .into_iter()
                 .map(|x| (x.fingerprint.clone(), x))
@@ -227,7 +229,7 @@ impl<'a> CircuitGenerator {
             guard_distr,
             middle_distr,
             family_agreement,
-        }
+        })
     }
 
     /// Generate a single new circuit.

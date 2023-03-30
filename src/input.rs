@@ -1,33 +1,91 @@
 use std::collections::hash_map::Entry;
+use std::error::Error;
 use std::rc::Rc;
 
 use tordoc::{
-    consensus::Flag, descriptor::FamilyMember, error::DocumentCombiningError, Consensus,
-    Descriptor, Fingerprint,
+    consensus::CondensedExitPolicy, consensus::Flag, consensus::Relay, descriptor::FamilyMember,
+    descriptor::OrAddress, error::DocumentCombiningError, Consensus, Descriptor, Fingerprint,
 };
 
-use crate::containers::{TorCircuitRelay, TorCircuitRelayBuilder};
+use crate::containers::TorCircuitRelay;
 use crate::mutual_agreement::MutualAgreement;
+use fromsuper::FromSuper;
 use seeded_rand::{RHashMap, RHashSet};
+
+#[derive(Debug, FromSuper)]
+#[fromsuper(from_type = "Descriptor", unpack = true)]
+struct MyDescriptor {
+    digest: Fingerprint,
+    family_members: Vec<FamilyMember>,
+    nickname: String,
+    or_addresses: Vec<OrAddress>,
+}
+
+struct MyRelay<'a> {
+    pub fingerprint: &'a Fingerprint,
+    pub digest: &'a Fingerprint,
+    pub bandwidth_weight: &'a u64,
+    pub flags: &'a Vec<Flag>,
+    /* For easier debugging */
+    pub nickname: &'a String,
+    pub exit_policy: &'a CondensedExitPolicy,
+}
+
+impl<'a> TryFrom<&'a Relay> for MyRelay<'a> {
+    type Error = Box<dyn Error + Send + Sync>;
+
+    fn try_from(value: &'a Relay) -> Result<Self, Self::Error> {
+        macro_rules! unpack_ref {
+            ($x:ident) => {
+                value
+                    .$x
+                    .as_ref()
+                    .ok_or_else(|| format!("relay is missing field {}", stringify!($x)))?
+            };
+        }
+
+        Ok(MyRelay {
+            fingerprint: unpack_ref!(fingerprint),
+            digest: unpack_ref!(digest),
+            bandwidth_weight: unpack_ref!(bandwidth_weight),
+            flags: unpack_ref!(flags),
+            nickname: unpack_ref!(nickname),
+            exit_policy: unpack_ref!(exit_policy),
+        })
+    }
+}
 
 pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a Consensus,
     descriptors: Vec<Descriptor>,
-) -> Vec<Rc<TorCircuitRelay>> {
+) -> Result<Vec<Rc<TorCircuitRelay>>, Box<dyn Error + Send + Sync>> {
     // let mut missingDescriptors = 0;
     // let mut buildFailed = 0;
     let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
 
-    let mut descriptors: RHashMap<Fingerprint, Descriptor> = descriptors
+    // unpack consensus relays
+    let consensus_relays: Vec<MyRelay> = consensus
+        .relays
+        .iter()
+        .map(|r| r.try_into())
+        .collect::<Result<_, _>>()?;
+
+    // unpack descriptors
+    let descriptors: Vec<MyDescriptor> = descriptors
+        .into_iter()
+        .map(|d| d.try_into())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut descriptors: RHashMap<Fingerprint, MyDescriptor> = descriptors
         .into_iter()
         .map(|d| (d.digest.clone(), d))
         .collect();
 
     let mut nicknames_to_fingerprints: RHashMap<String, Option<Fingerprint>> = RHashMap::default();
     {
-        for relay in consensus.relays.iter() {
+        for relay in consensus_relays.iter() {
             let nickname = relay.nickname.clone();
             match nicknames_to_fingerprints.entry(nickname) {
                 Entry::Vacant(e) => {
@@ -41,8 +99,7 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
         }
     }
 
-    let known_fingerprints: RHashSet<Fingerprint> = consensus
-        .relays
+    let known_fingerprints: RHashSet<Fingerprint> = consensus_relays
         .iter()
         .map(|r| r.fingerprint.clone())
         .collect();
@@ -64,13 +121,13 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
             None
         }
     };
-    for consensus_relay in consensus.relays.iter() {
+    for consensus_relay in consensus_relays.iter() {
         let result = descriptors.remove(&consensus_relay.digest).ok_or_else(|| {
             DocumentCombiningError::MissingDescriptor {
-                digest: consensus_relay.digest.clone(),
+                digest: consensus_relay.digest.to_string(),
             }
         });
-        if consensus_relay.bandwidth_weight == 0 {
+        if *consensus_relay.bandwidth_weight == 0 {
             /*println!(
                 "WARNING: Descriptor: {} has Consensus bandwidth of 0 and is dropped!",
                 descriptor.nickname
@@ -91,39 +148,33 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
                 continue;
             }
         };
-        let mut circuit_relay = TorCircuitRelayBuilder::default();
-        circuit_relay.fingerprint(consensus_relay.fingerprint.clone());
-        circuit_relay.bandwidth(consensus_relay.bandwidth_weight);
-        circuit_relay.family(
-            descriptor
-                .family_members
-                .into_iter()
-                // keep only family members that do exist, and convert them to fingerprints
-                .filter_map(filter_family_member)
-                .collect(),
-        );
-        circuit_relay.nickname(descriptor.nickname);
-        let mut flags = vec![];
-        for flag in consensus_relay.flags.iter() {
-            flags.push(flag.clone());
-        }
-        circuit_relay.flags(flags);
-        circuit_relay.or_addresses(descriptor.or_addresses);
-        circuit_relay.exit_policy(consensus_relay.exit_policy.clone());
 
-        let relay = match circuit_relay.build() {
-            Ok(circ_relay) => circ_relay,
-            Err(err) => {
-                println!("Error: {}", err.to_string());
-                // buildFailed += 1;
-                continue;
+        let relay = {
+            let mut flags = vec![];
+            for flag in consensus_relay.flags.iter() {
+                flags.push(flag.clone());
+            }
+
+            TorCircuitRelay {
+                fingerprint: consensus_relay.fingerprint.clone(),
+                bandwidth: *consensus_relay.bandwidth_weight,
+                family: descriptor
+                    .family_members
+                    .into_iter()
+                    // keep only family members that do exist, and convert them to fingerprints
+                    .filter_map(filter_family_member)
+                    .collect(),
+                nickname: descriptor.nickname,
+                flags: flags,
+                or_addresses: descriptor.or_addresses,
+                exit_policy: consensus_relay.exit_policy.clone(),
             }
         };
 
         relays.push(Rc::new(relay));
     }
 
-    relays
+    Ok(relays)
 }
 
 /// Compute the symmetric subset of the family relation.

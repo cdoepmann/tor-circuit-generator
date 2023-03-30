@@ -45,7 +45,7 @@ fn main() {
     let descriptors = consensus.retrieve_descriptors(consensus_file_path).unwrap();
 
     let circuit_generator: CircuitGenerator =
-        CircuitGenerator::new(&consensus, descriptors, vec![443]);
+        CircuitGenerator::new(&consensus, descriptors, vec![443]).unwrap();
 
     let mut ip_to_descmap: RHashMap<String, Rc<TorCircuitRelay>> = RHashMap::default();
     circuit_generator.relays.values().for_each(|relay| {

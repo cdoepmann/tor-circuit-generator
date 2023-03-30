@@ -4,7 +4,6 @@
 use std::fmt;
 use std::rc::Rc;
 
-use derive_builder::Builder;
 use ipnet::IpNet;
 use strum_macros::Display;
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
@@ -21,7 +20,7 @@ pub struct OrAddressNet {
 }
 
 /// A Tor relay, reduced to the properties needed for circuit selection.
-#[derive(Debug, Builder, Clone)]
+#[derive(Debug, Clone)]
 pub struct TorCircuitRelay {
     pub fingerprint: Fingerprint,
     pub family: Vec<Fingerprint>,
@@ -110,19 +109,34 @@ pub(crate) struct PositionWeights {
 }
 
 impl PositionWeights {
-    pub fn from_consensus(consensus: &Consensus) -> Self {
-        PositionWeights {
-            Wgg: *consensus.weights.get("Wgg").unwrap(),
-            Wgd: *consensus.weights.get("Wgd").unwrap(),
-            Wgm: *consensus.weights.get("Wgm").unwrap(),
-            Wme: *consensus.weights.get("Wme").unwrap(),
-            Wmg: *consensus.weights.get("Wmg").unwrap(),
-            Wmd: *consensus.weights.get("Wmd").unwrap(),
-            Wmm: *consensus.weights.get("Wmm").unwrap(),
-            Wee: *consensus.weights.get("Wee").unwrap(),
-            Weg: *consensus.weights.get("Weg").unwrap(),
-            Wed: *consensus.weights.get("Wed").unwrap(),
-            Wem: *consensus.weights.get("Wem").unwrap(),
+    pub fn from_consensus(
+        consensus: &Consensus,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let weights = consensus
+            .weights
+            .as_ref()
+            .ok_or_else(|| "missing consensus weights".to_string())?;
+
+        macro_rules! get_weight {
+            ($x:ident) => {
+                weights
+                    .get(stringify!($x))
+                    .ok_or_else(|| format!("missing consensus weight {}", stringify!($x)))?
+            };
         }
+
+        Ok(PositionWeights {
+            Wgg: *get_weight!(Wgg),
+            Wgd: *get_weight!(Wgd),
+            Wgm: *get_weight!(Wgm),
+            Wme: *get_weight!(Wme),
+            Wmg: *get_weight!(Wmg),
+            Wmd: *get_weight!(Wmd),
+            Wmm: *get_weight!(Wmm),
+            Wee: *get_weight!(Wee),
+            Weg: *get_weight!(Weg),
+            Wed: *get_weight!(Wed),
+            Wem: *get_weight!(Wem),
+        })
     }
 }
