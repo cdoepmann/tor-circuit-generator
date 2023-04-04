@@ -16,7 +16,8 @@ use seeded_rand::{RHashMap, RHashSet};
 #[fromsuper(from_type = "Descriptor", unpack = true)]
 struct MyDescriptor {
     digest: Fingerprint,
-    family_members: Vec<FamilyMember>,
+    #[fromsuper(unpack = false)]
+    family_members: Option<Vec<FamilyMember>>,
     nickname: String,
     or_addresses: Vec<OrAddress>,
 }
@@ -138,6 +139,8 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
                 bandwidth: *consensus_relay.bandwidth_weight,
                 family: descriptor
                     .family_members
+                    // assume that there are no family members if the entry is missing
+                    .unwrap_or_default()
                     .into_iter()
                     // keep only family members that do exist, and convert them to fingerprints
                     .filter_map(filter_family_member)
