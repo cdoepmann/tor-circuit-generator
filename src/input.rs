@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::error::Error;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use tordoc::{
     consensus::CondensedExitPolicy, consensus::Flag, consensus::Relay, descriptor::FamilyMember,
@@ -37,10 +37,10 @@ struct MyRelay<'a> {
 pub(crate) fn compute_tor_circuit_relays<'a>(
     consensus: &'a Consensus,
     descriptors: Vec<Descriptor>,
-) -> Result<Vec<Rc<TorCircuitRelay>>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<Arc<TorCircuitRelay>>, Box<dyn Error + Send + Sync>> {
     // let mut missingDescriptors = 0;
     // let mut buildFailed = 0;
-    let mut relays: Vec<Rc<TorCircuitRelay>> = vec![];
+    let mut relays: Vec<Arc<TorCircuitRelay>> = vec![];
     let mut dropped_bandwidth_0 = 0;
     let mut droppped_not_running = 0;
 
@@ -152,14 +152,14 @@ pub(crate) fn compute_tor_circuit_relays<'a>(
             }
         };
 
-        relays.push(Rc::new(relay));
+        relays.push(Arc::new(relay));
     }
 
     Ok(relays)
 }
 
 /// Compute the symmetric subset of the family relation.
-pub(crate) fn compute_families(relays: &Vec<Rc<TorCircuitRelay>>) -> MutualAgreement {
+pub(crate) fn compute_families(relays: &Vec<Arc<TorCircuitRelay>>) -> MutualAgreement {
     let mut agreement = MutualAgreement::new();
 
     for relay in relays {

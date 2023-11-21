@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand_distr::Distribution;
 use rand_distr::WeightedAliasIndex;
@@ -15,15 +15,15 @@ use crate::containers::{Position, PositionWeights, RelayType, TorCircuitRelay};
 pub struct RelayDistribution {
     pub bandwidth_sum: u64,
     distr: WeightedAliasIndex<u64>,
-    relays: Vec<Rc<TorCircuitRelay>>,
+    relays: Vec<Arc<TorCircuitRelay>>,
 }
 
 impl RelayDistribution {
-    /// Samples a relay from the distribution, returning it as an `Rc`.
-    pub(crate) fn sample(&self) -> Rc<TorCircuitRelay> {
+    /// Samples a relay from the distribution, returning it as an `Arc`.
+    pub(crate) fn sample(&self) -> Arc<TorCircuitRelay> {
         let mut rng = get_rng();
         let relay_idx = self.distr.sample(&mut rng);
-        Rc::clone(&self.relays[relay_idx])
+        Arc::clone(&self.relays[relay_idx])
     }
 
     /// Get the number of relays in this distribution
@@ -44,10 +44,10 @@ impl From<AbstractRelayDistributionCollector> for RelayDistribution {
 }
 
 trait AbstractRelayDistributionFilteredPush {
-    fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool;
-    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>);
+    fn filter(&self, relay: &Arc<TorCircuitRelay>) -> bool;
+    fn push_unfiltered(&mut self, relay: &Arc<TorCircuitRelay>);
 
-    fn filtered_push(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn filtered_push(&mut self, relay: &Arc<TorCircuitRelay>) {
         if !self.filter(relay) {
             return;
         }
@@ -68,13 +68,13 @@ impl GuardDistributionCollector {
 }
 
 impl AbstractRelayDistributionFilteredPush for GuardDistributionCollector {
-    fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
+    fn filter(&self, relay: &Arc<TorCircuitRelay>) -> bool {
         relay.flags.contains(&Flag::Guard)
             && relay.flags.contains(&Flag::Valid)
             && relay.flags.contains(&Flag::Running)
     }
 
-    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Arc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
 }
@@ -92,11 +92,11 @@ impl MiddleDistributionCollector {
 }
 
 impl AbstractRelayDistributionFilteredPush for MiddleDistributionCollector {
-    fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
+    fn filter(&self, relay: &Arc<TorCircuitRelay>) -> bool {
         relay.flags.contains(&Flag::Running)
     }
 
-    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Arc<TorCircuitRelay>) {
         self.collector.push(relay);
     }
 }
@@ -123,7 +123,7 @@ impl ExitDistributionCollector {
 }
 
 impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
-    fn filter(&self, relay: &Rc<TorCircuitRelay>) -> bool {
+    fn filter(&self, relay: &Arc<TorCircuitRelay>) -> bool {
         if !relay.flags.contains(&Flag::Valid) {
             return false;
         }
@@ -142,7 +142,7 @@ impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
         return true;
     }
 
-    fn push_unfiltered(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push_unfiltered(&mut self, relay: &Arc<TorCircuitRelay>) {
         // handle exit distributions
         match relay.exit_policy {
             CondensedExitPolicy {
@@ -218,7 +218,7 @@ impl TypeDependentWeights {
 struct AbstractRelayDistributionCollector {
     bandwidth_sum: u64,
     weights: Vec<u64>,
-    relays: Vec<Rc<TorCircuitRelay>>,
+    relays: Vec<Arc<TorCircuitRelay>>,
     type_dependent_weights: TypeDependentWeights,
 }
 
@@ -232,9 +232,9 @@ impl AbstractRelayDistributionCollector {
         }
     }
 
-    fn push(&mut self, relay: &Rc<TorCircuitRelay>) {
+    fn push(&mut self, relay: &Arc<TorCircuitRelay>) {
         let weight = relay.bandwidth * self.type_dependent_weights.get_weight(relay);
-        self.relays.push(Rc::clone(relay));
+        self.relays.push(Arc::clone(relay));
         self.weights.push(weight);
         self.bandwidth_sum += weight;
     }
@@ -247,7 +247,7 @@ impl AbstractRelayDistributionCollector {
 /// Note that the exit "distribution" is in fact a map of distributions,
 /// one for each requested exit port.
 pub(crate) fn get_distributions(
-    relays: &Vec<Rc<TorCircuitRelay>>,
+    relays: &Vec<Arc<TorCircuitRelay>>,
     consensus_weights: PositionWeights,
     exit_ports: Vec<u16>,
 ) -> (

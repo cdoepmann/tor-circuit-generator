@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use ipnet::IpNet;
 
@@ -15,10 +15,10 @@ use crate::mutual_agreement::MutualAgreement;
 
 const MAX_SAMPLE_TRYS: u32 = 1000;
 struct TorCircuitConstruction<'a> {
-    guard: Option<Rc<TorCircuitRelay>>,
-    middle: Vec<Rc<TorCircuitRelay>>,
-    exit: Option<Rc<TorCircuitRelay>>,
-    relays: Vec<Rc<TorCircuitRelay>>,
+    guard: Option<Arc<TorCircuitRelay>>,
+    middle: Vec<Arc<TorCircuitRelay>>,
+    exit: Option<Arc<TorCircuitRelay>>,
+    relays: Vec<Arc<TorCircuitRelay>>,
     hs_subnets: RHashSet<String>,
     cg: &'a CircuitGenerator,
     need_fast: bool,
@@ -43,8 +43,8 @@ impl<'a> TorCircuitConstruction<'a> {
         for _ in 0..MAX_SAMPLE_TRYS {
             if self.check_requirements(&exit_relay) {
                 self.update_requirements(&exit_relay);
-                self.relays.push(Rc::clone(&exit_relay));
-                self.exit = Some(Rc::clone(&exit_relay));
+                self.relays.push(Arc::clone(&exit_relay));
+                self.exit = Some(Arc::clone(&exit_relay));
                 return Ok(());
             }
             exit_relay = self.sample_exit_relay(target_port)?;
@@ -56,8 +56,8 @@ impl<'a> TorCircuitConstruction<'a> {
         for _ in 0..MAX_SAMPLE_TRYS {
             if self.check_requirements(&guard_relay) {
                 self.update_requirements(&guard_relay);
-                self.relays.push(Rc::clone(&guard_relay));
-                self.guard = Some(Rc::clone(&guard_relay));
+                self.relays.push(Arc::clone(&guard_relay));
+                self.guard = Some(Arc::clone(&guard_relay));
                 return Ok(());
             }
             guard_relay = self.sample_guard_relay();
@@ -67,11 +67,11 @@ impl<'a> TorCircuitConstruction<'a> {
 
     pub fn set_guard_relay(
         &mut self,
-        guard_relay: Rc<TorCircuitRelay>,
+        guard_relay: Arc<TorCircuitRelay>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.update_requirements(&guard_relay);
-        self.relays.push(Rc::clone(&guard_relay));
-        self.guard = Some(Rc::clone(&guard_relay));
+        self.relays.push(Arc::clone(&guard_relay));
+        self.guard = Some(Arc::clone(&guard_relay));
         return Ok(());
     }
 
@@ -80,8 +80,8 @@ impl<'a> TorCircuitConstruction<'a> {
         for _ in 0..MAX_SAMPLE_TRYS {
             if self.check_requirements(&middle_relay) {
                 self.update_requirements(&middle_relay);
-                self.relays.push(Rc::clone(&middle_relay));
-                self.middle.push(Rc::clone(&middle_relay));
+                self.relays.push(Arc::clone(&middle_relay));
+                self.middle.push(Arc::clone(&middle_relay));
                 return Ok(());
             }
             middle_relay = self.sample_middle_relay();
@@ -102,7 +102,7 @@ impl<'a> TorCircuitConstruction<'a> {
     pub fn sample_exit_relay(
         &self,
         target_port: u16,
-    ) -> Result<Rc<TorCircuitRelay>, Box<dyn std::error::Error>> {
+    ) -> Result<Arc<TorCircuitRelay>, Box<dyn std::error::Error>> {
         /*
         TODO!!!!: 6x
          * For the exit relays I also have to sample the flag_typ for each port,
@@ -128,14 +128,14 @@ impl<'a> TorCircuitConstruction<'a> {
         Ok(self.get_exit_distr(target_port)?.sample())
     }
 
-    pub fn sample_guard_relay(&self) -> Rc<TorCircuitRelay> {
+    pub fn sample_guard_relay(&self) -> Arc<TorCircuitRelay> {
         self.cg.guard_distr.sample()
     }
 
-    pub fn sample_middle_relay(&self) -> Rc<TorCircuitRelay> {
+    pub fn sample_middle_relay(&self) -> Arc<TorCircuitRelay> {
         self.cg.middle_distr.sample()
     }
-    pub fn update_requirements(&mut self, relay: &Rc<TorCircuitRelay>) {
+    pub fn update_requirements(&mut self, relay: &Arc<TorCircuitRelay>) {
         for address in &relay.or_addresses {
             let net_addr = match IpNet::new(address.ip, 16) {
                 Ok(addr) => addr,
@@ -147,7 +147,7 @@ impl<'a> TorCircuitConstruction<'a> {
             self.hs_subnets.insert(net_addr.to_string());
         }
     }
-    pub fn check_requirements(&self, relay: &Rc<TorCircuitRelay>) -> bool {
+    pub fn check_requirements(&self, relay: &Arc<TorCircuitRelay>) -> bool {
         // check the relay flags, if required
         if self.need_fast && !relay.flags.contains(&tordoc::consensus::Flag::Fast) {
             return false;
@@ -193,7 +193,7 @@ impl<'a> TorCircuitConstruction<'a> {
 }
 
 pub struct CircuitGenerator {
-    pub relays: RHashMap<Fingerprint, Rc<TorCircuitRelay>>,
+    pub relays: RHashMap<Fingerprint, Arc<TorCircuitRelay>>,
     pub guard_distr: RelayDistribution,
     pub middle_distr: RelayDistribution,
     pub exit_distrs: RHashMap<u16, RelayDistribution>,
@@ -298,7 +298,7 @@ impl<'a> CircuitGenerator {
     }
 
     /// Given a fingerprint, get the stored relay, if present
-    pub fn lookup_relay(&self, fingerprint: &Fingerprint) -> Option<Rc<TorCircuitRelay>> {
+    pub fn lookup_relay(&self, fingerprint: &Fingerprint) -> Option<Arc<TorCircuitRelay>> {
         self.relays.get(fingerprint).map(|x| x.clone())
     }
 
@@ -308,7 +308,7 @@ impl<'a> CircuitGenerator {
     pub fn sample_new_guard(
         &self,
         guards: &Vec<impl Borrow<Fingerprint>>,
-    ) -> Result<Rc<TorCircuitRelay>, Box<dyn std::error::Error>> {
+    ) -> Result<Arc<TorCircuitRelay>, Box<dyn std::error::Error>> {
         'guard_sampling: for _ in 0..=(guards.len() * 3 + 1) {
             // select some random relay
             let relay = self.guard_distr.sample();

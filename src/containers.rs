@@ -2,7 +2,7 @@
 //! generation.
 
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use ipnet::IpNet;
 use strum_macros::Display;
@@ -75,9 +75,9 @@ pub enum Position {
 
 #[derive(Debug, Clone)]
 pub struct TorCircuit {
-    pub guard: Rc<TorCircuitRelay>,
-    pub middle: Vec<Rc<TorCircuitRelay>>,
-    pub exit: Rc<TorCircuitRelay>,
+    pub guard: Arc<TorCircuitRelay>,
+    pub middle: Vec<Arc<TorCircuitRelay>>,
+    pub exit: Arc<TorCircuitRelay>,
 }
 
 impl<'a> fmt::Display for TorCircuit {

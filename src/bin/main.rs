@@ -4,7 +4,7 @@ use serde::*;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use seeded_rand::RHashMap;
 use tor_circuit_generator::{CircuitGenerator, TorCircuit, TorCircuitRelay};
@@ -47,10 +47,10 @@ fn main() {
     let circuit_generator: CircuitGenerator =
         CircuitGenerator::new(&consensus, descriptors, vec![443]).unwrap();
 
-    let mut ip_to_descmap: RHashMap<String, Rc<TorCircuitRelay>> = RHashMap::default();
+    let mut ip_to_descmap: RHashMap<String, Arc<TorCircuitRelay>> = RHashMap::default();
     circuit_generator.relays.values().for_each(|relay| {
         relay.or_addresses.iter().for_each(|addr| {
-            ip_to_descmap.insert(addr.ip.to_string(), Rc::clone(relay));
+            ip_to_descmap.insert(addr.ip.to_string(), Arc::clone(relay));
         })
     });
 
@@ -84,7 +84,7 @@ struct TorPSEpoch {
 
 fn parse_tor_circuit_file(
     tor_circuite_file_path: &str,
-    ip_to_descmap: RHashMap<String, Rc<TorCircuitRelay>>,
+    ip_to_descmap: RHashMap<String, Arc<TorCircuitRelay>>,
 ) -> Vec<TorPSEpoch> {
     let file = File::open(tor_circuite_file_path).unwrap();
     let reader = BufReader::new(file);
@@ -106,9 +106,9 @@ fn parse_tor_circuit_file(
             let middle = ip_to_descmap.get(middle).unwrap();
             let exit = ip_to_descmap.get(exit).unwrap();
             circuits.push(TorCircuit {
-                guard: Rc::clone(guard),
-                middle: vec![Rc::clone(middle)],
-                exit: Rc::clone(exit),
+                guard: Arc::clone(guard),
+                middle: vec![Arc::clone(middle)],
+                exit: Arc::clone(exit),
             })
         }
         _ => {
@@ -141,9 +141,9 @@ fn parse_tor_circuit_file(
                 let middle = ip_to_descmap.get(middle).unwrap();
                 let exit = ip_to_descmap.get(exit).unwrap();
                 circuits.push(TorCircuit {
-                    guard: Rc::clone(guard),
-                    middle: vec![Rc::clone(middle)],
-                    exit: Rc::clone(exit),
+                    guard: Arc::clone(guard),
+                    middle: vec![Arc::clone(middle)],
+                    exit: Arc::clone(exit),
                 })
             }
             _ => {
