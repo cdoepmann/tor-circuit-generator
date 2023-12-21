@@ -132,6 +132,14 @@ impl AbstractRelayDistributionFilteredPush for ExitDistributionCollector {
             return false;
         }
 
+        if !relay.flags.contains(&Flag::Exit) {
+            return false;
+        }
+
+        if relay.flags.contains(&Flag::BadExit) {
+            return false;
+        }
+
         if let CondensedExitPolicy {
             policy_type: ExitPolicyType::Reject,
             ..
