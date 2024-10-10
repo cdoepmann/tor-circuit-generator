@@ -16,8 +16,8 @@ sha1 = "0.10.1"
 twox-hash = "1.6.2"
 strum = "0.23"
 strum_macros = "0.23"
-tordoc = {path = "../tordoc"}
-seeded_rand = {path = "../seeded_rand"}
+tordoc = { git = "https://github.com/cdoepmann/tordoc" }
+seeded_rand = { git = "https://github.com/cdoepmann/seeded_rand" }
 ipnet = "2.5.0"
 serde = { version = "1.0.103", features = ["derive"] }
 serde_json = "1.0.85"
